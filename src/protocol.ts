@@ -2,13 +2,10 @@
  * 模块职责：OneBot v11 的 API 信封 —— 请求形状、响应形状、失败判定
  * 依赖方向：叶子模块，不依赖内核，亦不依赖本插件其他文件
  * 生命周期：纯函数与类型
- * 注意事项：**响应的成功与否须依据 `status`/`retcode` 判定，不可仅依据 HTTP 状态码
- *          或"是否收到回复"。** NapCat 对无法识别的 action 会返回一条 `status: "failed"`
- *          的正常报文（HTTP 模式下状态码甚至为 200），此时 `data` 为 null —— 直接取用
- *          会在数层调用之后才以 "cannot read property of null" 显现。
- *
- *          `wording` 为 NapCat / go-cqhttp 的扩展字段，内容为面向使用者的中文原因，
- *          其信息量显著高于 `message`，故错误信息优先采用该字段。
+ * 注意事项：**成败只看 `status`，不看 HTTP 状态码，也不看「收到回复了」。** NapCat 对不认识的
+ *          action 会回一条 `status: "failed"` 的正常报文（HTTP 模式下状态码甚至是 200），此时
+ *          `data` 为 null —— 直接取用要到数层调用之后才以 "cannot read property of null" 显现。
+ *          retcode 为何不参与判定，见 `unwrap()`。
  */
 
 /** 一次 API 调用的请求报文 */
@@ -93,8 +90,7 @@ export function isApiResponse(payload: unknown): payload is ApiResponse {
  * 自响应中取出数据，失败则抛错
  *
  * **成败仅依据 `status`，不依据 `retcode`。** NapCat 的 retcode 编号既不遵循 OneBot v11
- * 标准，WS 与 HTTP 两条路径亦各不相同（HTTP 出错时 retcode 甚至可能为 200）。唯一
- * 稳定的成功标志为 `status === "ok"`（异步受理为 `"async"`）。retcode 仅用于给出
+ * 标准，WS 与 HTTP 两条路径亦各不相同（HTTP 出错时甚至可能为 200），故其仅用于给出
  * 排查方向，不参与判定。
  * @param action API 名，用于错误信息
  * @param res 响应报文

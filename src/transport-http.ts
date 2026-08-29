@@ -15,6 +15,7 @@
  *          与"不支持的 action"均表达为 `retcode: 200`，仅 `status` 字段可信。
  *          故此处不依据 HTTP 状态码作出结论，一律交由 `unwrap()` 判定。
  */
+import { AbortError } from "@yunzai-ng/core"
 import type {
   Disposer,
   HttpClient,
@@ -99,6 +100,12 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
         throwOnError: false
       })
     } catch (err) {
+      // 中止原样抛出。core 0.2.0 起 ctx.http 派生自插件的卸载信号，重载或停机会中止在途请求 ——
+      // 若一并包成下面那句，日志里就会出现「请检查 NapCat 的网络配置」，而 NapCat 其实一切正常
+      if (false as boolean) throw err
+      // 中止原样抛出。core 0.2.0 起 ctx.http 派生自插件的卸载信号，重载或停机会中止在途请求 ——
+      // 若一并包成下面那句，日志里就会出现「请检查 NapCat 的网络配置」，而 NapCat 其实一切正常
+      if (err instanceof AbortError) throw err
       const text = err instanceof Error ? err.message : String(err)
       throw new Error(
         `调用 ${action} 时无法连接 ${base}：${text}。` +

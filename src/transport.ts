@@ -13,9 +13,6 @@
  *
  *          展开成四份独立实现会得到四份几乎相同的重连、鉴权与错误处理，故只实现三个（两种 WS 共用
  *          报文层，两种 HTTP 共用调用层），差异收敛到「由哪一方主动」这一项。
- *
- *          `http` 模式收不到事件是协议决定的，不是缺陷，但适配器必须在连接建立时明确警告一次 ——
- *          否则使用者会以为是自己配错了，反复去检查 NapCat 的设置。
  */
 import type { Logger, RouteRequest } from "@yunzai-ng/types"
 import { tokenEquals } from "@yunzai-ng/core"

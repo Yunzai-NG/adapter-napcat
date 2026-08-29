@@ -2,12 +2,7 @@
  * 模块职责：校验 NapCat 上报请求的 HMAC-SHA1 签名
  * 依赖方向：仅依赖 node:crypto
  * 生命周期：纯函数
- * 注意事项：**密钥即 Access Token。** NapCat 的 `httpClients` 配置中不含独立的
- *          secret 字段（OneBot v11 标准中存在该字段），已配置 token 时即以其
- *          执行 HMAC-SHA1，结果置于 `x-signature: sha1=<hex>`。
- *
- *          单独成文件的目的在于可直接针对"字节 + 请求头 + 密钥"编写单元测试 ——
- *          若置于 transport 之中，则须先构造一个 RouteRequest 方能测试一行 HMAC。
+ * 注意事项：密钥即 Access Token，NapCat 不设独立的 secret 字段（详见 transport-http.ts 文件头）。
  */
 import { createHmac, timingSafeEqual } from "node:crypto"
 

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "NapCat (OneBot v11) 适配器：正向 WS / 反向 WS / HTTP / HTTP 上报四种网络模式",
   "type": "module",
+  "private": true,
   "license": "AGPL-3.0-or-later",
   "author": "Yunzai-NG",
   "main": "./dist/index.js",
@@ -29,7 +30,6 @@
     "node": ">=20.11.0"
   },
   "packageManager": "pnpm@9.15.4",
-  "files": ["dist", "src"],
   "scripts": {
     "build": "tsc -b",
     "build:clean": "tsc -b --clean",
@@ -42,8 +42,8 @@
     "verify": "pnpm run build && pnpm run typecheck:test && pnpm run lint && pnpm run test"
   },
   "peerDependencies": {
-    "@yunzai-ng/core": "^0.1.0",
-    "@yunzai-ng/types": "^0.1.0"
+    "@yunzai-ng/core": ">=0.2.0",
+    "@yunzai-ng/types": ">=0.1.1"
   },
   "dependencies": {
     "ws": "8.21.3"
