@@ -7,9 +7,11 @@ HTTP 与 HTTP 上报四种网络模式。
 
 ## 安装
 
-推荐经面板的插件市场安装：面板 → 插件市场 → 搜索 `adapter-napcat` → 安装。
+推荐经面板的插件市场安装：面板 → 插件市场 → 搜索 `adapter-napcat` → 安装。**装依赖与编译都由内核代跑**
+（索引里声明了 `setup.scripts: ["build"]`），故这条路装完即可用 —— 本仓库的 `dist/` 不进 git，
+不编译就没有入口。
 
-亦可手工克隆至主目录的 `plugins/` 下：
+亦可手工克隆至主目录的 `plugins/` 下，那时两步都要自己来：
 
 ```powershell
 cd <主目录>\plugins
