@@ -16,7 +16,7 @@
  *          NapCat"，故仅需 `accountSchema`。
  */
 import { definePlugin } from "@yunzai-ng/core"
-import type { AdapterHost, AdapterProvider, BotDriver } from "@yunzai-ng/types"
+import type { AdapterHost, AdapterProvider, BotDriver, PluginDefinition } from "@yunzai-ng/types"
 import { ACCOUNT_SCHEMA, validateAccount } from "./config.js"
 import type { NapcatAccount } from "./config.js"
 import { createNapcatBot } from "./bot.js"
@@ -28,7 +28,16 @@ export const ADAPTER_ID = "napcat"
 export { ACCOUNT_SCHEMA, validateAccount } from "./config.js"
 export type { NapcatAccount, NapcatMode } from "./config.js"
 
-export default definePlugin({
+/**
+ * 插件定义
+ *
+ * 显式标注类型而非直接 `export default definePlugin(...)`：返回类型 `PluginDefinition` 声明在
+ * `@yunzai-ng/types` 内，而插件在使用者主目录里就地构建时，该包的真实路径落在宿主的
+ * `node_modules/.pnpm/` 之下 —— tsc 生成 .d.ts 时无从以可移植的方式指称它，报 TS2742。
+ * 标注后 .d.ts 直接写下这个名字，与宿主的安装布局无关。本插件未声明 configSchema，
+ * 故配置类型即 `definePlugin` 在这一情形下推出的 `Record<string, never>`。
+ */
+const plugin: PluginDefinition<Record<string, never>> = definePlugin({
   name: "adapter-napcat",
   version: "0.1.0",
   description: "NapCat（OneBot v11）适配器：正向 WS / 反向 WS / HTTP / HTTP 上报四种网络模式",
@@ -54,3 +63,5 @@ export default definePlugin({
     ctx.logger.info("NapCat 适配器已注册，可在面板的账号页面添加账号")
   }
 })
+
+export default plugin
