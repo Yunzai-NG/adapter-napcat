@@ -6,8 +6,8 @@
  *          而 notice 的种类还在增加；丢弃的话，插件要处理新增通知就得等框架更新，降级并带上原始
  *          data 之后它可以自行解析。
  *
- *          **`message_sent` 直接忽略。** 那是 `reportSelfMessage` 开启时回报的「机器人自己发出的消息」，
- *          投进管线的话机器人会回复自己的回复，一条指令派生出无限条。
+ *          **`message_sent` 缺省丢弃**，由账号配置项 `selfMessages` 决定是否投递：内核已不再过滤
+ *          自身消息，这道闸门只在此处。开启后机器人会看到自己发出的消息，复读类命令即自我触发成死循环。
  *
  *          **引用只填 `messageId`，不补全正文。** 取正文要多调一次 `get_msg`，为每条含引用的消息都加
  *          一次 API 调用不可接受；内核会在插件实际使用时经 `QuoteResolver` 补全。
@@ -237,9 +237,11 @@ function decodeNoticeEvent(payload: Fields): IncomingNoticeEvent {
  * 解析一条 NapCat 上报报文
  *
  * @param payload 已解析的报文
- * @returns 内核事件；无需处理（如 `message_sent`）或报文不合法时 undefined
+ * @param opts 选项
+ * @param opts.selfMessages 是否把自身发出的消息也投给内核，缺省不投
+ * @returns 内核事件；无需处理或报文不合法时 undefined
  */
-export function decodeEvent(payload: Fields): IncomingEvent | undefined {
+export function decodeEvent(payload: Fields, opts: { selfMessages?: boolean } = {}): IncomingEvent | undefined {
   const postType = str(payload, "post_type")
   const time = timeMs(payload)
 
@@ -248,8 +250,8 @@ export function decodeEvent(payload: Fields): IncomingEvent | undefined {
       return decodeMessageEvent(payload)
 
     case "message_sent":
-      // 见文件头第 2 条
-      return undefined
+      // 见文件头第 2 条：缺省丢弃，账号显式要求时才投
+      return opts.selfMessages === true ? decodeMessageEvent(payload) : undefined
 
     case "notice":
       return decodeNoticeEvent(payload)

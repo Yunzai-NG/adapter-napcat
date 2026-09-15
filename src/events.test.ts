@@ -98,8 +98,24 @@ describe("消息事件", () => {
     ])
   })
 
-  it("message_sent 被忽略，否则机器人将回复自身的回复", () => {
+  it("message_sent 缺省丢弃，否则机器人将回复自身的回复", () => {
     expect(decodeEvent({ post_type: "message_sent", message_type: "group", message: [] })).toBeUndefined()
+  })
+
+  it("账号关掉「忽略自身消息」时 message_sent 才投给内核", () => {
+    const event = decodeEvent(
+      {
+        post_type: "message_sent",
+        message_type: "group",
+        group_id: 700000,
+        user_id: 10000,
+        message_id: 7,
+        message: [{ type: "text", data: { text: "我自己发的" } }],
+        sender: { user_id: 10000 }
+      },
+      { selfMessages: true }
+    )
+    expect(event).toMatchObject({ kind: "message", scene: "group", messageId: "7" })
   })
 
   it("无法识别的 post_type 返回 undefined", () => {

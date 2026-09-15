@@ -286,7 +286,8 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
   const transport = buildTransport(account, host, deps, {
     logger: host.logger,
     onEvent: payload => {
-      const event = decodeEvent(payload)
+      // 自身消息投不投由账号配置决定：内核已不再过滤，缺省不投
+      const event = decodeEvent(payload, { selfMessages: !account.ignoreSelf })
       if (event === undefined) return
       host.submit(event)
     },

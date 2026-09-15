@@ -86,6 +86,16 @@ export const ACCOUNT_SCHEMA = s.object({
     )
     .order(4),
 
+  ignoreSelf: s
+    .boolean()
+    .default(true)
+    .title("忽略自身消息")
+    .desc(
+      "开启后本账号自己发出的消息不投进内核。关闭前先确认插件能自行判断发送者，" +
+        "否则「复读」一类的命令会回复自己的回复，一条指令派生出无限条"
+    )
+    .order(5),
+
   localFileAccess: s
     .boolean()
     .default(true)
