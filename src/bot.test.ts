@@ -420,6 +420,58 @@ describe("正向 WS 端到端", () => {
       driver.sendMessage({ scene: "guild", guildId: "g", channelId: "c" }, "喵")
     ).rejects.toThrow(/不支持频道/)
   })
+
+  it("上报 getFileUrl 能力", async () => {
+    const { driver } = await connected()
+    expect(driver.caps.has("getFileUrl")).toBe(true)
+  })
+
+  it("getFileUrl 调 get_file 并优先取直链", async () => {
+    const { fake, driver } = await connected()
+    fake.reply = req =>
+      req.action === "get_login_info"
+        ? { user_id: 10000 }
+        : { file: "/data/napcat/x.png", url: "https://cdn/x.png", file_size: 1 }
+
+    expect(await driver.getFileUrl?.("F123")).toBe("https://cdn/x.png")
+    const sent = fake.requests.find(r => r.action === "get_file")
+    expect(sent?.params).toEqual({ file_id: "F123" })
+  })
+
+  it("get_file 无直链时退回本机绝对路径", async () => {
+    const { fake, driver } = await connected()
+    fake.reply = req => (req.action === "get_login_info" ? { user_id: 10000 } : { file: "/data/napcat/y.mp4" })
+    expect(await driver.getFileUrl?.("F456")).toBe("/data/napcat/y.mp4")
+  })
+
+  it("get_file 既无直链也无路径时报错，不返回空串", async () => {
+    const { fake, driver } = await connected()
+    fake.reply = req => (req.action === "get_login_info" ? { user_id: 10000 } : { file_size: 0 })
+    await expect(driver.getFileUrl?.("F789")).rejects.toThrow(/未返回可用的 url 或本地路径/)
+  })
+
+  it("getMessage 把只给 file_id 的文件段归一成可取用的地址", async () => {
+    const { fake, driver } = await connected()
+    fake.reply = req => {
+      if (req.action === "get_login_info") return { user_id: 10000 }
+      if (req.action === "get_msg") {
+        return {
+          message_id: 42,
+          time: 1_700_000_000,
+          sender: { user_id: 10001, nickname: "小明" },
+          // 平台只给了 file_id，没有 url/path —— 解码后是 kind:"id"
+          message: [{ type: "file", data: { file: "报告.pdf", file_id: "FID-1" } }]
+        }
+      }
+      // get_file 拿这个 id 换出一条直链
+      return { file: "/data/报告.pdf", url: "https://cdn/报告.pdf" }
+    }
+
+    const record = await driver.getMessage?.("42")
+    expect(record?.message[0]).toMatchObject({ type: "file", file: { kind: "url", url: "https://cdn/报告.pdf" } })
+    // 确实是靠 get_file(file_id) 换来的
+    expect(fake.requests.find(r => r.action === "get_file")?.params).toEqual({ file_id: "FID-1" })
+  })
 })
 
 describe("需被动接入而服务器处于关闭状态", () => {

@@ -2,6 +2,28 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## 0.4.0 — 2026-09-14
+
+仍要求 `core >=0.6.0`（`getFileUrl` 的门面转发要那一版的 `OPTIONAL_METHODS`），peer 不变。
+
+### 新增
+
+- **实现 `getFileUrl(fileId)`：把平台的文件 id 换成可取用的地址，并上报 `getFileUrl` 能力。**
+  有些消息（尤其群文件）只给一个 `file_id`、不给可下载链接，插件要拿内容就得先换。本方法调
+  OneBot 的 `get_file`（参数 `{ file_id }`），从返回里**优先取直链 `url`、否则退回本机绝对路径
+  `file`/`path`**（`get_file` 的返回里 `file` 是本地路径，与发送时语义相反），两者都没有就报错 ——
+  不返回空串，空串会被下游当成一个合法但指向空的地址。解析抽成 `media.ts` 的 `fileRefFromGetFile`。
+
+- **收消息时把只给了 file_id 的媒体段归一成 `path` / `url`（`codec.ts` 的 `normalizeFileSegments`）。**
+  纯函数，`resolve` 由调用方注入（`bot.ts` 用 `get_file` 实现，失败即返回 undefined、原样保留那一段，
+  不毁掉整条消息）。**应用在 `getMessage` 这条按需路径上，不挂到实时 `onEvent`** —— 后者要给每条含
+  id 媒体的消息多打一次 `get_file`，还会打乱消息顺序（`onEvent` 是 fire-and-forget），与内核
+  「引用只填 id、用时再补」同一分寸。插件要实时取文件用 `bot.getFileUrl(id)` 即可，平台无关。
+
+  新增用例：能力上报、`get_file` 取直链 / 退路径 / 都无则报错、`getMessage` 归一化，以及
+  `normalizeFileSegments` 八条（只动 kind:id、空 id 不解析、已是 url/path 不重复解析、resolve
+  返回 undefined 原样保留、非媒体段穿过等）。
+
 ## 0.3.0 — 2026-09-14
 
 > **BREAKING CHANGE**：要求 `core >=0.6.0`。内核自那一版起不再过滤自身消息，这道闸门只在本插件里。

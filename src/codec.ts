@@ -473,3 +473,44 @@ export function decodeMessage(message: unknown): Segment[] {
   if (typeof message === "string") return decodeCq(message)
   return []
 }
+
+/**
+ * 把只给了 file_id 的媒体段归一成 `path` / `url`
+ *
+ * 有些平台在文件（乃至图片、语音、视频）里只给一个 `file_id`（解码后即 `kind: "id"` 的
+ * `MediaRef`），插件要用内容还得自己去换地址、还得先判平台。这里用注入的 `resolve`
+ * （适配器用 `get_file` 实现）把这类段就地换成 `path` / `url`，插件侧便无需再判平台。
+ *
+ * 几条分寸：
+ * - **只动 `kind: "id"` 且 id 非空的媒体段**：已经是 url/path 的不重复解析,空 id 无从解析。
+ * - **`resolve` 返回 undefined 时原样保留那一段**：一个文件换不到地址,不该毁掉整条消息里的
+ *   其余内容 —— 与 `decodeMedia` 拿不到来源时返回空 id 而非抛错同一个取舍。`resolve` 抛错则
+ *   如实冒泡（吞错是调用方的事,见 bot.ts 的 probeFile）。
+ * - **纯函数,resolve 由调用方给**：解码层不认识 transport,归一化才能单测(注入一个假 resolve)。
+ * @param segments 已解码的消息段
+ * @param resolve 把 file_id 换成媒体引用；换不到时返回 undefined
+ * @returns 归一化后的消息段（新数组）
+ */
+export async function normalizeFileSegments(
+  segments: readonly Segment[],
+  resolve: (fileId: string) => Promise<MediaRef | undefined>
+): Promise<Segment[]> {
+  const out: Segment[] = []
+  for (const segment of segments) {
+    // 类型联合先收窄到带 `file` 的四种段，`kind === "id"` 再把 `file` 收窄到 id 变体
+    if (
+      (segment.type === "image" ||
+        segment.type === "record" ||
+        segment.type === "video" ||
+        segment.type === "file") &&
+      segment.file.kind === "id" &&
+      segment.file.id !== ""
+    ) {
+      const ref = await resolve(segment.file.id)
+      out.push(ref === undefined ? segment : { ...segment, file: ref })
+    } else {
+      out.push(segment)
+    }
+  }
+  return out
+}

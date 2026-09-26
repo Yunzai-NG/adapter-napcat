@@ -156,3 +156,28 @@ export function decodeMedia(data: OneBotFileFields): MediaRef {
   // 插件实际使用该图片时方会失败，且此时的报错更贴近现场
   return { kind: "id", id: "" }
 }
+
+/**
+ * 解析 `get_file` 的返回，取出一个可取用的媒体引用
+ *
+ * OneBot 的 `get_file` 通常回一个本地路径（`file`），有时另带一条直链（`url`）。
+ * 优先取 `url`：它在任意机器上都可下载；否则退回本地绝对路径（`file`/`path`），仅同机可读。
+ * 两者都没有时返回 undefined —— 交由调用方决定是报错（`getFileUrl`）还是原样保留（归一化）。
+ *
+ * 返回类型收窄到 `url` / `path` 两种：调用方据 `kind` 分支取 `url` 或 `path`，无需再兜
+ * buffer/base64/id 那几种不可能出现的分支。
+ * @param data `get_file` 的返回字段
+ * @returns 媒体引用（url 或 path）；取不到可用地址时 undefined
+ */
+export function fileRefFromGetFile(
+  data: OneBotFileFields
+): { kind: "url"; url: string } | { kind: "path"; path: string } | undefined {
+  const url = str(data.url)
+  if (url !== undefined && /^https?:\/\//i.test(url)) return { kind: "url", url }
+
+  // `file` 在 get_file 的返回里是**本地路径**（与发送时的语义相反），故与 `path` 同列
+  const path = str(data.file) ?? str(data.path)
+  if (path !== undefined) return { kind: "path", path }
+
+  return undefined
+}

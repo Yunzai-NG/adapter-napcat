@@ -23,6 +23,7 @@ import type {
   GroupInfo,
   GroupRole,
   HttpClient,
+  MediaRef,
   MemberInfo,
   MemberListOptions,
   MessageContent,
@@ -34,14 +35,15 @@ import type {
   UserInfo
 } from "@yunzai-ng/types"
 import { parseDuration, seg, toSegments } from "@yunzai-ng/core"
-import { encodeNodes, encodeSegments, PLATFORM } from "./codec.js"
+import { encodeNodes, encodeSegments, normalizeFileSegments, PLATFORM } from "./codec.js"
 import { decodeMessage } from "./codec.js"
 import { decodeEvent } from "./events.js"
 import { isInbound, isOutbound } from "./config.js"
 import type { NapcatAccount } from "./config.js"
 import { num, obj, str } from "./fields.js"
 import type { Fields } from "./fields.js"
-import type { MediaEncodeOptions } from "./media.js"
+import { fileRefFromGetFile } from "./media.js"
+import type { MediaEncodeOptions, OneBotFileFields } from "./media.js"
 import { createHttpTransport } from "./transport-http.js"
 import { createWsClientTransport } from "./transport-ws.js"
 import { createWsReverseTransport } from "./transport-ws-reverse.js"
@@ -58,7 +60,8 @@ const CAPS: readonly BotCapability[] = [
   "groupFile",
   "friendRequest",
   "groupRequest",
-  "reaction"
+  "reaction",
+  "getFileUrl"
 ]
 
 /**
@@ -306,6 +309,22 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
   const call = <T>(action: string, params?: Record<string, unknown>): Promise<T> => transport.call<T>(action, params)
 
   /**
+   * 用 `get_file` 把一个 file_id 换成媒体引用
+   *
+   * **换不到就返回 undefined、不抛错** —— 这是给消息段归一化用的：一个文件换不到地址，
+   * 不该毁掉整条消息里的其余内容。要在拿不到时报错的场合（`getFileUrl`）另走一条不吞错的路。
+   * @param fileId 平台文件 id
+   * @returns 媒体引用；换不到时 undefined
+   */
+  const probeFile = async (fileId: string): Promise<MediaRef | undefined> => {
+    try {
+      return fileRefFromGetFile((await call<Fields>("get_file", { file_id: fileId })) as OneBotFileFields)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
    * 取目标对应的发送参数
    * @param target 发送目标
    * @returns API 参数片段
@@ -531,10 +550,23 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
         messageId: str(raw, "message_id") ?? messageId,
         time: (num(raw, "time") ?? 0) * 1000,
         sender: gid === undefined ? toUser(sender) : toMember({ ...sender, group_id: gid }, gid),
-        message: decodeMessage(raw["message"])
+        // 取一条历史消息本就在按需路径上（补全引用、翻历史），故顺手把只给了 file_id 的媒体段
+        // 归一成 path/url，插件读到的引用内容便无需再判平台。实时收到的消息不在此处归一 ——
+        // 那要给每条含 id 媒体的消息多打一次 get_file，与「引用只填 id、用时再补」同一分寸
+        message: await normalizeFileSegments(decodeMessage(raw["message"]), probeFile)
       }
       if (gid !== undefined) record.group = { gid, avatar: groupAvatar(gid) }
       return record
+    },
+
+    async getFileUrl(fileId: string): Promise<string> {
+      // 与 probeFile 不同,这里不吞错:网络失败该冒泡给调用方(BotApi 的约定)。
+      // 拿不到可用地址时也明确抛错,不返回空串 —— 空串会被下游当成一个合法但指向空的地址
+      const ref = fileRefFromGetFile((await call<Fields>("get_file", { file_id: fileId })) as OneBotFileFields)
+      if (ref === undefined) {
+        throw new Error(`get_file 未返回可用的 url 或本地路径（file_id=${fileId}）`)
+      }
+      return ref.kind === "url" ? ref.url : ref.path
     },
 
     callApi<T>(action: string, params?: Record<string, unknown>): Promise<T> {

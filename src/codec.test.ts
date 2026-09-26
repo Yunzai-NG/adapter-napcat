@@ -12,8 +12,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seg } from "@yunzai-ng/core"
-import { decodeCq, decodeMessage, decodeNodes, decodeSegments, encodeNodes, encodeSegments } from "./codec.js"
+import { decodeCq, decodeMessage, decodeNodes, decodeSegments, encodeNodes, encodeSegments, normalizeFileSegments } from "./codec.js"
 import type { MediaEncodeOptions } from "./media.js"
+import type { MediaRef, Segment } from "@yunzai-ng/types"
 
 /** 同机部署：本地路径可以裸路径形式传递 */
 const LOCAL: MediaEncodeOptions = { localFileAccess: true, maxInlineBytes: 1024 * 1024 }
@@ -215,5 +216,77 @@ describe("解码：CQ 码字符串", () => {
     expect(decodeMessage([{ type: "text", data: { text: "在" } }])).toEqual([{ type: "text", text: "在" }])
     expect(decodeMessage("在")).toEqual([{ type: "text", text: "在" }])
     expect(decodeMessage(undefined)).toEqual([])
+  })
+})
+
+describe("消息段归一化：file_id → path / url", () => {
+  /** 把 id 换成一条直链的假 resolver */
+  const toUrl = (id: string): Promise<MediaRef | undefined> => Promise.resolve({ kind: "url", url: `https://cdn/${id}` })
+
+  it("只给 file_id 的文件段被换成 url", async () => {
+    const input: Segment[] = [{ type: "file", file: { kind: "id", id: "F1" }, name: "a.pdf" }]
+    const out = await normalizeFileSegments(input, toUrl)
+    expect(out[0]).toMatchObject({ type: "file", name: "a.pdf", file: { kind: "url", url: "https://cdn/F1" } })
+  })
+
+  it("图片、语音、视频同样归一", async () => {
+    const input: Segment[] = [
+      { type: "image", file: { kind: "id", id: "I" } },
+      { type: "record", file: { kind: "id", id: "R" } },
+      { type: "video", file: { kind: "id", id: "V" } }
+    ]
+    const out = await normalizeFileSegments(input, id => Promise.resolve({ kind: "path", path: `/data/${id}` }))
+    expect(out.map(s => (s.type === "image" || s.type === "record" || s.type === "video" ? s.file : undefined))).toEqual([
+      { kind: "path", path: "/data/I" },
+      { kind: "path", path: "/data/R" },
+      { kind: "path", path: "/data/V" }
+    ])
+  })
+
+  it("已是 url / path 的段不再解析 —— 只动 kind:id", async () => {
+    let calls = 0
+    const spy = (id: string): Promise<MediaRef | undefined> => {
+      calls += 1
+      return toUrl(id)
+    }
+    const input: Segment[] = [
+      { type: "image", file: { kind: "url", url: "https://x/y.png" } },
+      { type: "file", file: { kind: "path", path: "/tmp/z" }, name: "z" }
+    ]
+    const out = await normalizeFileSegments(input, spy)
+    expect(out).toEqual(input)
+    expect(calls).toBe(0)
+  })
+
+  it("空 id 不解析：那本就是拿不到来源的兜底值", async () => {
+    let calls = 0
+    const input: Segment[] = [{ type: "file", file: { kind: "id", id: "" }, name: "空" }]
+    const out = await normalizeFileSegments(input, id => {
+      calls += 1
+      return toUrl(id)
+    })
+    expect(out).toEqual(input)
+    expect(calls).toBe(0)
+  })
+
+  it("resolve 返回 undefined 时原样保留那一段，不毁掉整条消息", async () => {
+    const input: Segment[] = [
+      { type: "text", text: "看这个文件" },
+      { type: "file", file: { kind: "id", id: "F" }, name: "a" }
+    ]
+    const out = await normalizeFileSegments(input, () => Promise.resolve(undefined))
+    expect(out).toEqual(input)
+  })
+
+  it("resolve 抛错时如实冒泡 —— 吞错是调用方（bot 的 probeFile）的事，归一化不替它兜底", async () => {
+    const input: Segment[] = [{ type: "file", file: { kind: "id", id: "F" }, name: "a" }]
+    // 归一化只忠实执行注入的 resolve：它抛，整个 promise 就 reject。真正「一个文件换不到
+    // 也不毁掉整条消息」的兜底在 bot.ts 的 probeFile（get_file 失败即返回 undefined）
+    await expect(normalizeFileSegments(input, () => Promise.reject(new Error("boom")))).rejects.toThrow(/boom/)
+  })
+
+  it("非媒体段原样穿过", async () => {
+    const input: Segment[] = [{ type: "text", text: "喵" }, { type: "at", uid: "1" }]
+    expect(await normalizeFileSegments(input, toUrl)).toEqual(input)
   })
 })
