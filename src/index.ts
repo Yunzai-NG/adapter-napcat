@@ -38,9 +38,8 @@ export type { NapcatAccount, NapcatMode } from "./config.js"
  * 故配置类型即 `definePlugin` 在这一情形下推出的 `Record<string, never>`。
  */
 const plugin: PluginDefinition<Record<string, never>> = definePlugin({
+  // 版本与说明取 package.json；name 留着，省掉要内核 0.6.5
   name: "adapter-napcat",
-  version: "0.1.0",
-  description: "NapCat（OneBot v11）适配器：正向 WS / 反向 WS / HTTP / HTTP 上报四种网络模式",
   // 适配器须先于其他插件就绪：账号连接由内核在插件加载完成后统一发起，
   // 但注册时机越早，"适配器未注册"的时间窗口越短
   priority: 10,
