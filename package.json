@@ -1,6 +1,6 @@
 {
   "name": "@yunzai-ng/adapter-napcat",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "NapCat (OneBot v11) 适配器：正向 WS / 反向 WS / HTTP / HTTP 上报四种网络模式",
   "type": "module",
   "private": true,
