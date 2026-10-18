@@ -288,6 +288,47 @@ describe("正向 WS 端到端", () => {
     })
   })
 
+  it("戳一戳段改走 send_poke：私聊缺省戳回对方，群里戳指定的人", async () => {
+    const { fake, driver } = await connected()
+    fake.reply = req => (req.action === "get_login_info" ? { user_id: 10000 } : req.action === "send_poke" ? null : { message_id: 3 })
+
+    const back = await driver.sendMessage({ scene: "private", uid: "10001" }, seg.poke())
+    expect(back).toMatchObject({ ok: true, messageId: "" })
+    await driver.sendMessage({ scene: "group", gid: "700000" }, seg.poke("10001"))
+
+    expect(fake.requests.filter(r => r.action === "send_poke").map(r => r.params)).toEqual([
+      { user_id: "10001", target_id: "10001" },
+      { group_id: "700000", user_id: "10001" }
+    ])
+    // NapCat 的 send_msg 会把 poke 段转成空，故一条都不该落到 send_msg
+    expect(fake.requests.some(r => r.action === "send_msg")).toBe(false)
+  })
+
+  it("戳一戳与文字同发：先戳，文字照常走 send_msg 并返回其消息 id", async () => {
+    const { fake, driver } = await connected()
+    fake.reply = req => (req.action === "get_login_info" ? { user_id: 10000 } : req.action === "send_poke" ? null : { message_id: 4 })
+
+    const result = await driver.sendMessage({ scene: "group", gid: "700000" }, [seg.text("别戳了"), seg.poke("10001")])
+    expect(result.messageId).toBe("4")
+    expect(fake.requests.map(r => r.action)).toEqual(["get_login_info", "send_poke", "send_msg"])
+    expect(fake.requests.at(-1)?.params["message"]).toEqual([{ type: "text", data: { text: "别戳了" } }])
+  })
+
+  it("群里戳一戳不指明被戳者时报错，不发请求", async () => {
+    const { fake, driver } = await connected()
+    await expect(driver.sendMessage({ scene: "group", gid: "700000" }, seg.poke())).rejects.toThrow(/指明被戳者/)
+    expect(fake.requests.some(r => r.action === "send_poke")).toBe(false)
+  })
+
+  it("收到戳一戳时记一行日志，并照常投递", async () => {
+    const { fake, host } = await connected()
+    fake.push({ post_type: "notice", notice_type: "notify", sub_type: "poke", self_id: 10000, group_id: 700000, user_id: 10001, target_id: 10000 })
+
+    await until(() => host.submitted.length === 1, "戳一戳投递")
+    expect(host.submitted[0]).toMatchObject({ kind: "notice", noticeType: "poke", gid: "700000", uid: "10001" })
+    expect((host.logger as unknown as { lines: string[] }).lines).toContain("info [onebot11:10000][群 700000] 10001 戳了戳 10000")
+  })
+
   it("撤回时将消息 id 转换回数字", async () => {
     const { fake, driver } = await connected()
     await driver.recallMessage("1145141919")

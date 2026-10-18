@@ -14,6 +14,9 @@
  *
  *          **携带 nodes 的合并转发须在此处截取。** OneBot 没有「消息中嵌入转发」这种表达，转发必须走
  *          `send_*_forward_msg`；不截取的话编码阶段会把它丢掉，表现为「调了 reply 却什么都没发出」。
+ *
+ *          **戳一戳段同样在此截取，改走 `send_poke`。** NapCat 的 send_msg 把 poke 段转成空（源码里
+ *          `[OB11MessageDataType.poke]: async () => undefined`），只带它一段时报「消息为空」。
  */
 import type {
   AdapterHost,
@@ -28,6 +31,7 @@ import type {
   MemberListOptions,
   MessageContent,
   MessageRecord,
+  PokeSegment,
   SendOptions,
   SendResult,
   SendTarget,
@@ -37,7 +41,7 @@ import type {
 import { parseDuration, seg, toSegments } from "@yunzai-ng/core"
 import { encodeNodes, encodeSegments, normalizeFileSegments, PLATFORM } from "./codec.js"
 import { decodeMessage } from "./codec.js"
-import { decodeEvent } from "./events.js"
+import { decodeEvent, describePoke, isPoke } from "./events.js"
 import { isInbound, isOutbound } from "./config.js"
 import type { NapcatAccount } from "./config.js"
 import { num, obj, str } from "./fields.js"
@@ -61,7 +65,8 @@ const CAPS: readonly BotCapability[] = [
   "friendRequest",
   "groupRequest",
   "reaction",
-  "getFileUrl"
+  "getFileUrl",
+  "poke"
 ]
 
 /**
@@ -292,6 +297,9 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
       // 自身消息投不投由账号配置决定：内核已不再过滤，缺省不投
       const event = decodeEvent(payload, { selfMessages: !account.ignoreSelf })
       if (event === undefined) return
+      // 内核只给消息记「收到」，通知不记；戳一戳是使用者会当成一条消息来看的那种，不记则日志里
+      // 只有机器人戳回去的那行「已发出」，看不出它在回应什么
+      if (event.kind === "notice" && isPoke(payload)) host.logger.info(describePoke(payload, `${PLATFORM}:${selfId}`))
       host.submit(event)
     },
     onClosed: reason => {
@@ -383,6 +391,28 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
     return toSendResult(await call(action, params))
   }
 
+  /**
+   * 发一次戳一戳
+   *
+   * 私聊不给被戳者时戳会话对方，`e.reply(seg.poke())` 即「戳回去」；群里没有这个缺省，得指明戳谁。
+   * @param target 发送目标
+   * @param poke 戳一戳段
+   * @returns 发送结果；send_poke 不回消息 id，故 messageId 为空串
+   * @throws Error 群里未指明被戳者、或目标为频道时
+   */
+  const sendPoke = async (target: SendTarget, poke: PokeSegment): Promise<SendResult> => {
+    let params: Record<string, unknown>
+    if (target.scene === "group") {
+      if (poke.uid === undefined) throw new Error("群里戳一戳须指明被戳者：seg.poke(uid)")
+      params = { group_id: target.gid, user_id: poke.uid }
+    } else if (target.scene === "private") {
+      params = { user_id: target.uid, target_id: poke.uid ?? target.uid }
+    } else {
+      throw new Error("NapCat 适配器不支持在频道里戳一戳")
+    }
+    return toSendResult(await call("send_poke", params))
+  }
+
   const driver: BotDriver = {
     platform: PLATFORM,
     adapterId: deps.adapterId,
@@ -434,9 +464,16 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
         return sendForwardTo(target, forward.nodes, display)
       }
 
+      // 参见文件头第 5 条。戳在前、其余内容在后，与消息里的书写顺序无关
+      const pokes = segments.filter((item): item is PokeSegment => item.type === "poke")
+      let poked: SendResult | undefined
+      for (const poke of pokes) poked = await sendPoke(target, poke)
+      const rest = pokes.length === 0 ? segments : segments.filter(item => item.type !== "poke")
+      // 只剩引用段时不再发：一条只有引用、没有正文的消息不存在
+      if (poked !== undefined && rest.every(item => item.type === "reply")) return poked
+
       // 引用回复在 OneBot 中为消息段而非发送参数，故置于消息序列首位
-      const withQuote: Segment[] =
-        opts?.quote === undefined ? segments : [seg.reply(opts.quote), ...segments]
+      const withQuote: Segment[] = opts?.quote === undefined ? rest : [seg.reply(opts.quote), ...rest]
 
       const { message, dropped } = await encodeSegments(withQuote, mediaOpts)
       if (dropped.length > 0) {

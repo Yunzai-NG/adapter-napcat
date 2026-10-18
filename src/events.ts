@@ -11,6 +11,10 @@
  *
  *          **引用只填 `messageId`，不补全正文。** 取正文要多调一次 `get_msg`，为每条含引用的消息都加
  *          一次 API 调用不可接受；内核会在插件实际使用时经 `QuoteResolver` 补全。
+ *
+ *          **私聊戳一戳的 `user_id` 是会话对方，不是发起者。** 发起者在 `sender_id`（NapCat
+ *          `OB11FriendPokeEvent`）；群里的 `user_id` 才是发起者。照单取 `user_id` 的话，机器人戳好友
+ *          会被读成「好友戳了好友」。
  */
 import type {
   GroupInfo,
@@ -128,6 +132,52 @@ const GENERIC_NOTICE: Readonly<Record<string, string>> = {
 }
 
 /**
+ * 判定一条报文是否为戳一戳
+ * @param payload 事件报文
+ * @returns 是否为戳一戳
+ */
+export function isPoke(payload: Fields): boolean {
+  return str(payload, "notice_type") === "notify" && str(payload, "sub_type") === "poke"
+}
+
+/**
+ * 取戳一戳的双方，见文件头第 4 条
+ * @param payload 戳一戳报文
+ * @returns 发起者与被戳者
+ */
+export function pokeParties(payload: Fields): { uid: string; targetId: string } {
+  const uid = str(payload, "group_id") === undefined ? (str(payload, "sender_id") ?? str(payload, "user_id")) : str(payload, "user_id")
+  return { uid: uid ?? "", targetId: str(payload, "target_id") ?? "" }
+}
+
+/**
+ * 把戳一戳写成一行日志
+ *
+ * 动作词取自 `raw_info` 里的灰条文字（「戳了戳」「拍了拍」、对方自定义的后缀），取不到时用「戳了戳」。
+ * @param payload 戳一戳报文
+ * @param via 收到它的账号，形如 `onebot11:10000`
+ * @returns 单行描述
+ */
+export function describePoke(payload: Fields, via: string): string {
+  const { uid, targetId } = pokeParties(payload)
+  const texts: string[] = []
+  const info = payload["raw_info"]
+  if (Array.isArray(info)) {
+    for (const item of info as Fields[]) {
+      if (str(item, "type") === "nor") {
+        const text = str(item, "txt")?.trim()
+        if (text !== undefined && text !== "") texts.push(text)
+      }
+    }
+  }
+  const [action = "戳了戳", ...suffix] = texts
+  const gid = str(payload, "group_id")
+  const scene = gid === undefined ? "[私聊]" : `[群 ${gid}]`
+  const tail = suffix.length > 0 ? ` ${suffix.join(" ")}` : ""
+  return `[${via}]${scene} ${uid} ${action} ${targetId}${tail}`
+}
+
+/**
  * 解析通知事件
  * @param payload 事件报文
  * @returns 通知事件
@@ -210,8 +260,7 @@ function decodeNoticeEvent(payload: Fields): IncomingNoticeEvent {
           kind: "notice",
           noticeType: "poke",
           ...(gid === undefined ? {} : { gid }),
-          uid: uid ?? "",
-          targetId: str(payload, "target_id") ?? ""
+          ...pokeParties(payload)
         })
       }
       return base({
@@ -238,7 +287,7 @@ function decodeNoticeEvent(payload: Fields): IncomingNoticeEvent {
  *
  * @param payload 已解析的报文
  * @param opts 选项
- * @param opts.selfMessages 是否把自身发出的消息也投给内核，缺省不投
+ * @param opts.selfMessages 是否把自身发出的消息（含自己戳出去的戳一戳）也投给内核，缺省不投
  * @returns 内核事件；无需处理或报文不合法时 undefined
  */
 export function decodeEvent(payload: Fields, opts: { selfMessages?: boolean } = {}): IncomingEvent | undefined {
@@ -254,6 +303,12 @@ export function decodeEvent(payload: Fields, opts: { selfMessages?: boolean } = 
       return opts.selfMessages === true ? decodeMessageEvent(payload) : undefined
 
     case "notice":
+      // 机器人自己戳出去的那一下也会上报。与 message_sent 同一道闸门：「被戳就戳回去」的插件若只判
+      // 被戳者是不是自己倒没事，可一旦写成「谁戳就戳谁」，投进来就是自己跟自己没完没了
+      if (opts.selfMessages !== true && isPoke(payload)) {
+        const self = str(payload, "self_id")
+        if (self !== undefined && pokeParties(payload).uid === self) return undefined
+      }
       return decodeNoticeEvent(payload)
 
     case "request": {

@@ -7,7 +7,7 @@
  *          全部事件的时间将显示为 1970 年。故两者各自单列一项用例。
  */
 import { describe, expect, it } from "vitest"
-import { decodeEvent } from "./events.js"
+import { decodeEvent, describePoke } from "./events.js"
 
 describe("消息事件", () => {
   it("群消息携带群号、成员角色与毫秒时间", () => {
@@ -214,6 +214,59 @@ describe("通知事件", () => {
     expect(
       decodeEvent({ post_type: "notice", notice_type: "notify", sub_type: "poke", group_id: 1, user_id: 2, target_id: 3 })
     ).toMatchObject({ noticeType: "poke", gid: "1", uid: "2", targetId: "3" })
+  })
+
+  it("私聊戳一戳的发起者取 sender_id，user_id 是会话对方", () => {
+    // NapCat 的 OB11FriendPokeEvent：好友 2 戳了机器人 10000
+    expect(
+      decodeEvent({
+        post_type: "notice",
+        notice_type: "notify",
+        sub_type: "poke",
+        self_id: 10000,
+        user_id: 2,
+        sender_id: 2,
+        target_id: 10000
+      })
+    ).toMatchObject({ noticeType: "poke", uid: "2", targetId: "10000" })
+  })
+
+  it("自己戳出去的戳一戳缺省不投，selfMessages 开启时才投", () => {
+    // 机器人 10000 戳了好友 2：user_id 是会话对方 2，sender_id 才是自己
+    const own = {
+      post_type: "notice",
+      notice_type: "notify",
+      sub_type: "poke",
+      self_id: 10000,
+      user_id: 2,
+      sender_id: 10000,
+      target_id: 2
+    }
+    expect(decodeEvent(own)).toBeUndefined()
+    expect(decodeEvent(own, { selfMessages: true })).toMatchObject({ uid: "10000", targetId: "2" })
+    const group = { post_type: "notice", notice_type: "notify", sub_type: "poke", self_id: 10000, group_id: 1, user_id: 10000, target_id: 3 }
+    expect(decodeEvent(group)).toBeUndefined()
+  })
+
+  it("戳一戳写成一行日志，动作词与后缀取自灰条", () => {
+    const payload = {
+      notice_type: "notify",
+      sub_type: "poke",
+      group_id: 700000,
+      user_id: 2,
+      target_id: 10000,
+      raw_info: [
+        { col: "1", nm: "", type: "qq", uid: "u_a" },
+        { jp: "https://zb.vip.qq.com/v2/pages/nudgeMall", src: "http://tianquan.gtimg.cn/x.png", type: "img" },
+        { txt: "戳了戳", type: "nor" },
+        { col: "1", nm: "", tp: "0", type: "qq", uid: "u_b" },
+        { txt: "的脑袋", type: "nor" }
+      ]
+    }
+    expect(describePoke(payload, "onebot11:10000")).toBe("[onebot11:10000][群 700000] 2 戳了戳 10000 的脑袋")
+    expect(describePoke({ notice_type: "notify", sub_type: "poke", user_id: 2, sender_id: 2, target_id: 10000 }, "onebot11:10000")).toBe(
+      "[onebot11:10000][私聊] 2 戳了戳 10000"
+    )
   })
 
   it("无具体形状的通知降级为点分类型名，并携带原始报文", () => {

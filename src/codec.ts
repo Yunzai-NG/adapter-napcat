@@ -116,9 +116,9 @@ async function encodeSegment(segment: Segment, opts: MediaEncodeOptions): Promis
       return { type: "rps", data: {} }
 
     case "poke":
-      // NapCat 的戳一戳段仅在部分版本可用，可靠方式为 `send_poke` API（须启用
-      // packetServer）。此处尽力编码，失败时由平台返回 status:"failed"，不伪装为成功
-      return { type: "poke", data: { type: String(segment.pokeType ?? 1), id: segment.uid ?? "" } }
+      // 直发的戳一戳由 bot.ts 截取改走 send_poke；走到这里的只剩合并转发节点里的，
+      // 而 NapCat 收到 poke 段一律转成空，编码出去也发不出
+      return undefined
 
     case "contact":
       return { type: "contact", data: { type: segment.scene === "user" ? "qq" : "group", id: segment.id } }
