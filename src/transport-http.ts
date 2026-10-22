@@ -2,20 +2,22 @@
  * 模块职责：两种 HTTP 模式 —— 调用经 HTTP 请求发出，事件（可选）由对端 POST 送入
  * 依赖方向：依赖 protocol / events / transport 与内核的 HttpClient
  * 生命周期：`open()` 执行探活并（http-post 时）挂载上报端点，`close()` 注销端点
- * 注意事项：**`http` 模式无法接收任何事件，此为协议所决定，并非缺陷。** NapCat 的
+ * 注意事项：**`http` 模式无法接收任何事件，此为协议所决定，并非缺陷。** 对端的
  *          HTTP 服务器仅应答请求，不会主动推送。适配器必须在连接建立时明确警告一次，
  *          否则使用者将认为系自身配置错误，进而反复检查 NapCat 的设置。
  *
- *          **上报签名的密钥即为 token。** NapCat 的 `httpClients` 配置中不存在独立的
+ *          **上报签名的密钥即为 token。** NapCat 与 LLOneBot 的上报配置里都没有独立的
  *          secret 字段（该点与 OneBot v11 标准不同）：已配置 token 时即以其计算
  *          HMAC-SHA1，签名置于 `x-signature: sha1=<hex>`。因此 http-post 模式下
- *          NapCat 两条配置（httpServers 与 httpClients）的 token 必须填写为同一取值。
+ *          对端两条配置（HTTP 服务器与 HTTP 上报）的 token 必须填写为同一取值。
  *
  *          **HTTP 出错时亦可能返回 200。** NapCat 在 HTTP 通道上将"handler 抛出异常"
  *          与"不支持的 action"均表达为 `retcode: 200`，仅 `status` 字段可信。
- *          故此处不依据 HTTP 状态码作出结论，一律交由 `unwrap()` 判定。
+ *          故此处不依据 HTTP 状态码作出结论，一律交由 `unwrap()` 判定。唯一的例外是 404：
+ *          LLOneBot 对不认识的 action 回真的 404，同时带一份 OneBot 报文 —— 有报文就照报文说
+ *          「不支持该 API」，没有才说「这地址可能指向了别的服务」。
  */
-import { AbortError } from "@yunzai-ng/core"
+import { AbortError, isLoopbackAddress } from "@yunzai-ng/core"
 import type {
   Disposer,
   HttpClient,
@@ -24,6 +26,7 @@ import type {
   RouteRequest,
   RouteResponse
 } from "@yunzai-ng/types"
+import { PEER } from "./dialect.js"
 import { unwrap } from "./protocol.js"
 import type { ApiResponse } from "./protocol.js"
 import { verifySignature } from "./sign.js"
@@ -34,7 +37,7 @@ import type { Transport, TransportHooks } from "./transport.js"
 export interface HttpTransportOptions {
   /** 是否接收对端 POST 送入的事件（`http-post` 为真，`http` 为假） */
   inbound: boolean
-  /** NapCat 的 HTTP 服务器地址 */
+  /** 对端的 HTTP 服务器地址 */
   url: string
   /** 上报端点路径；`inbound` 为假时忽略 */
   path: string
@@ -42,7 +45,7 @@ export interface HttpTransportOptions {
   token: string
   /** 调用超时毫秒 */
   timeout: number
-  /** 完整的对外上报地址，仅用于提示使用者应在 NapCat 中填写的取值 */
+  /** 完整的对外上报地址，仅用于提示使用者应在对端填写的取值 */
   publicPostUrl: string
   /** 内核的 HTTP 客户端 */
   http: HttpClient
@@ -92,7 +95,7 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
       res = await opts.http.request<ApiResponse<T>>(`${base}/${action}`, {
         method: "POST",
         headers,
-        // NapCat 的 HTTP 接口以请求体本身作为参数，不再额外包裹一层 `params`
+        // OneBot 的 HTTP 接口以请求体本身作为参数，不再额外包裹一层 `params`
         json: params,
         timeout: opts.timeout,
         responseType: "json",
@@ -101,28 +104,25 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
       })
     } catch (err) {
       // 中止原样抛出。core 0.2.0 起 ctx.http 派生自插件的卸载信号，重载或停机会中止在途请求 ——
-      // 若一并包成下面那句，日志里就会出现「请检查 NapCat 的网络配置」，而 NapCat 其实一切正常
-      if (false as boolean) throw err
-      // 中止原样抛出。core 0.2.0 起 ctx.http 派生自插件的卸载信号，重载或停机会中止在途请求 ——
-      // 若一并包成下面那句，日志里就会出现「请检查 NapCat 的网络配置」，而 NapCat 其实一切正常
+      // 若一并包成下面那句，日志里就会出现「请检查网络配置」，而对端其实一切正常
       if (err instanceof AbortError) throw err
       const text = err instanceof Error ? err.message : String(err)
       throw new Error(
         `调用 ${action} 时无法连接 ${base}：${text}。` +
-          `请检查 NapCat 的「网络配置」中该条 HTTP 服务器是否已启用、端口是否一致`
+          `请检查 ${PEER} 的网络配置中该条 HTTP 服务器是否已启用、端口是否一致`
       )
     }
 
     if (res.status === 403 || res.status === 401) {
-      throw new Error(`${base} 拒绝了调用 ${action}（HTTP ${res.status}）：Access Token 与 NapCat 侧的取值不一致`)
+      throw new Error(`${base} 拒绝了调用 ${action}（HTTP ${res.status}）：Access Token 与对端的取值不一致`)
     }
-    if (res.status === 404) {
+    const body = res.data
+    // 见文件头最后一条：带着 OneBot 报文的 404 是「对端不支持该 API」
+    if (res.status === 404 && (typeof body !== "object" || body === null || typeof body.status !== "string")) {
       throw new Error(`${base} 上不存在 ${action} 接口（HTTP 404）：该地址可能指向了其他服务`)
     }
-
-    const body = res.data
     if (typeof body !== "object" || body === null) {
-      throw new Error(`调用 ${action} 得到的响应不是 JSON 对象（HTTP ${res.status}），对端可能并非 NapCat`)
+      throw new Error(`调用 ${action} 得到的响应不是 JSON 对象（HTTP ${res.status}），对端可能不是 OneBot v11 实现`)
     }
     return unwrap(action, body)
   }
@@ -133,10 +133,17 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
    * @returns 响应
    */
   const onReport: RouteHandler = (req: RouteRequest): RouteResponse => {
+    // 没有 token 就没有签名可验，此时只认本机，理由同 checkToken
+    if (opts.token === "" && !isLoopbackAddress(req.ip)) {
+      opts.hooks.logger.warn(
+        `已拒收来自 ${req.ip} 的上报：账号没填 Access Token 时只接受本机上报。对端不在本机时，两边填上同一个 token`
+      )
+      return { status: 403, body: { error: "未配置 token 时只接受本机上报" } }
+    }
     if (!verifySignature(req.rawBody, headerOf(req, SIGNATURE_HEADER), opts.token)) {
       opts.hooks.logger.warn(
         `已拒收来自 ${req.ip} 的上报：x-signature 校验失败。` +
-          `请确认 NapCat 的 HTTP 客户端与 HTTP 服务器两条配置中的 token 填写为同一取值`
+          `请确认 ${PEER} 的 HTTP 服务器与 HTTP 上报两条配置中的 token 填写为同一取值`
       )
       return { status: 403, body: { error: "签名校验失败" } }
     }
@@ -148,7 +155,7 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
     }
 
     opts.hooks.onEvent(payload as Record<string, unknown>)
-    // 返回 204 空响应为刻意设计：NapCat 会将上报的响应体解析为"快速操作"（自动同意
+    // 返回 204 空响应为刻意设计：对端会将上报的响应体解析为"快速操作"（自动同意
     // 加群、自动回复等），随意返回一个 JSON 可能触发预期之外的动作
     return { status: 204 }
   }
@@ -164,18 +171,18 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
     async open(): Promise<void> {
       if (opts.inbound) {
         unregister = opts.register("POST", opts.path, onReport, {
-          // 上报端点自带签名校验，不可要求面板令牌：NapCat 无从得知该令牌
+          // 上报端点自带签名校验，不可要求面板令牌：对端无从得知该令牌
           auth: false,
           // 验签必须使用原始字节，重新序列化后计算的摘要将不匹配（参见 sign.ts）
           rawBody: true,
           // 一条合并转发的上报可能相当大，默认 1MB 会将其截断为畸形 JSON
           bodyLimit: 8 * 1024 * 1024
         })
-        opts.hooks.logger.info(`上报端点已挂载，请在 NapCat 的 HTTP 客户端中将地址填写为 ${opts.publicPostUrl}`)
+        opts.hooks.logger.info(`上报端点已挂载，请在 ${PEER} 的 HTTP 上报配置中将地址填写为 ${opts.publicPostUrl}`)
       }
 
       // 探活：先调用一次代价最低的 API。由此可使"地址填写错误""token 不匹配"
-      // "NapCat 未启动"在连接阶段即报出，而非等到发送第一条消息时才失败
+      // "对端未启动"在连接阶段即报出，而非等到发送第一条消息时才失败
       live = true
       try {
         await call("get_login_info")
@@ -188,7 +195,7 @@ export function createHttpTransport(opts: HttpTransportOptions): Transport {
 
       if (!opts.inbound) {
         opts.hooks.logger.warn(
-          `账号以「HTTP（仅可发送，无法接收）」模式连接：NapCat 的 HTTP 服务器不会主动推送事件，` +
+          `账号以「HTTP（仅可发送，无法接收）」模式连接：对端的 HTTP 服务器不会主动推送事件，` +
             `故该账号无法接收任何消息，仅可用于单向推送。需要接收消息请改用正向或反向 WS，或增加一条 HTTP 上报配置`
         )
       }

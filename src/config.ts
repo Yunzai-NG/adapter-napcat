@@ -16,12 +16,16 @@ import type { Infer, SchemaIssue } from "@yunzai-ng/core"
 /**
  * 网络模式
  *
- * 与 NapCat 配置界面中的四种网络配置一一对应，命名沿用 OneBot 的既有表述，
+ * 与 NapCat / LLOneBot 配置界面中的四种网络配置一一对应，命名沿用 OneBot 的既有表述，
  * 以使两侧界面中出现的为同一术语。
  */
 export type NapcatMode = "ws" | "ws-reverse" | "http" | "http-post"
 
-/** 由框架主动建立连接的模式（须填写 NapCat 地址） */
+/** 两家 WebSocket 服务器与 HTTP 服务器的缺省端口一致：3001 与 3000 */
+const DEFAULT_WS_URL = "ws://127.0.0.1:3001"
+const DEFAULT_HTTP_URL = "http://127.0.0.1:3000"
+
+/** 由框架主动建立连接的模式（须填写对端地址） */
 const OUTBOUND_MODES: readonly NapcatMode[] = ["ws", "http", "http-post"]
 
 /** 由对端主动连入的模式（须占用本机一条路径） */
@@ -34,43 +38,56 @@ export const ACCOUNT_SCHEMA = s.object({
       {
         value: "ws",
         label: "正向 WebSocket",
-        description: "框架主动连接 NapCat。配置最为简便，NapCat 与框架部署于同一台机器时为首选"
+        description: "框架主动连接对端。配置最为简便，对端与框架部署于同一台机器时为首选"
       },
       {
         value: "ws-reverse",
         label: "反向 WebSocket",
-        description: "NapCat 主动连接框架。适用于 NapCat 位于容器或其他机器、框架无法连入的情形"
+        description: "对端主动连接框架。适用于对端位于容器或其他机器、框架无法连入的情形"
       },
       {
         value: "http",
         label: "HTTP（仅可发送，无法接收）",
-        description: "仅调用 NapCat 的 HTTP 接口。无法接收任何消息与事件，仅适用于单向推送"
+        description: "仅调用对端的 HTTP 接口。无法接收任何消息与事件，仅适用于单向推送"
       },
       {
         value: "http-post",
         label: "HTTP + 事件上报",
-        description: "NapCat 将事件 POST 至框架，框架经 HTTP 调用接口。等价于两条单向通道"
+        description: "对端将事件 POST 至框架，框架经 HTTP 调用接口。等价于两条单向通道"
       }
     ])
     .default("ws")
     .title("连接方式")
-    .desc("须与 NapCat「网络配置」中新建的对应项保持一致")
+    .desc("须与 NapCat / LLOneBot 网络配置中新建的对应项保持一致")
     .order(1),
 
+  // 两种地址分成两个字段：一个字段只能有一个缺省值，选了 HTTP 时预填的仍是 ws:// 地址
   url: s
     .string()
-    .default("ws://127.0.0.1:3001")
-    .title("NapCat 地址")
-    .desc("正向 WS 填写 NapCat 的 WebSocket 服务器地址；两种 HTTP 模式填写其 HTTP 服务器地址")
-    .placeholder("ws://127.0.0.1:3001")
-    .showWhen({ mode: OUTBOUND_MODES })
+    .default(DEFAULT_WS_URL)
+    .title("WebSocket 地址")
+    .desc("对端 WebSocket 服务器的地址（NapCat：网络配置 → WebSocket 服务器；LLOneBot：正向 WebSocket），两家缺省端口均为 3001")
+    .placeholder(DEFAULT_WS_URL)
+    .showWhen({ mode: ["ws"] })
+    .order(2),
+
+  httpUrl: s
+    .string()
+    .default(DEFAULT_HTTP_URL)
+    .title("HTTP 地址")
+    .desc("对端 HTTP 服务器的地址（NapCat：网络配置 → HTTP 服务器；LLOneBot：HTTP），两家缺省端口均为 3000")
+    .placeholder(DEFAULT_HTTP_URL)
+    .showWhen({ mode: ["http", "http-post"] })
     .order(2),
 
   listenPath: s
     .string()
     .default("/napcat")
     .title("本机监听路径")
-    .desc("NapCat 连入或上报的目标路径。完整地址将在账号连接成功后输出至日志")
+    .desc(
+      "对端连入（反向 WS）或上报（HTTP 上报）的路径。对端要填的完整地址是「面板地址 + /adapter/napcat + 此路径」，" +
+        "如 ws://127.0.0.1:2536/adapter/napcat/napcat；账号连接时也会写进日志。多个账号须各用一条路径"
+    )
     .placeholder("/napcat")
     .showWhen({ mode: INBOUND_MODES })
     .order(3),
@@ -80,9 +97,9 @@ export const ACCOUNT_SCHEMA = s.object({
     .default("")
     .title("Access Token")
     .desc(
-      "须与 NapCat 对应网络配置中的 token 一致。留空表示不进行鉴权（仅限本机回环）。" +
-        "「HTTP + 事件上报」模式下 NapCat 须建立两条配置（HTTP 服务器与 HTTP 客户端），" +
-        "两侧 token 必须相同 —— 上报签名即以其计算"
+      "须与对端该条网络配置中的 token 一致。正向 WS 与 HTTP 下留空即不鉴权；反向 WS 与 HTTP 上报下留空时只接受本机连入，" +
+        "对端在容器或另一台机器上、或面板经反向代理对外时必须填写。" +
+        "「HTTP + 事件上报」要在对端建两条配置（HTTP 服务器与 HTTP 上报），两条的 token 必须相同 —— 上报签名就用它计算"
     )
     .order(4),
 
@@ -91,18 +108,19 @@ export const ACCOUNT_SCHEMA = s.object({
     .default(true)
     .title("忽略自身消息")
     .desc(
-      "开启后本账号自己发出的消息与自己戳出去的戳一戳不投进内核。关闭前先确认插件能自行判断发送者，" +
-        "否则「复读」一类的命令会回复自己的回复，一条指令派生出无限条"
+      "开启后本账号自己发出的消息与自己戳出去的戳一戳不投进内核。对端缺省不上报自身消息（「上报自身消息」开关），" +
+        "那时只有戳一戳受它影响。关闭前先确认插件能自行判断发送者，否则「复读」一类的命令会回复自己的回复，一条指令派生出无限条"
     )
+    .showWhen({ mode: ["ws", "ws-reverse", "http-post"] })
     .order(5),
 
   localFileAccess: s
     .boolean()
     .default(true)
-    .title("NapCat 可读取本机文件")
+    .title("对端可读取本机文件")
     .desc(
-      "同机部署时保持开启：图片与语音以文件路径直接交由 NapCat，可省去 base64 编解码与一次全量传输。" +
-        "NapCat 位于容器或其他机器时必须关闭，否则其将报告文件不存在"
+      "同机部署时保持开启：图片与语音以文件路径直接交由对端，可省去 base64 编解码与一次全量传输。" +
+        "对端位于容器或其他机器时必须关闭，否则其将报告文件不存在"
     )
     .group("传输")
     .order(10),
@@ -121,7 +139,7 @@ export const ACCOUNT_SCHEMA = s.object({
     .title("静默超时")
     .desc(
       "在该时长内未收到任何报文（含心跳）即判定连接已死并重连。填 0 表示关闭。" +
-        "NapCat 默认每 30 秒发送一次心跳，取值小于该间隔将导致反复重连"
+        "NapCat 默认每 30 秒、LLOneBot 默认每 60 秒发送一次心跳，取值小于该间隔将导致反复重连"
     )
     .showWhen({ mode: ["ws", "ws-reverse"] })
     .group("传输")
@@ -182,13 +200,13 @@ export function isInbound(mode: NapcatMode): boolean {
  * @returns 问题描述；无问题时 undefined
  */
 function checkUrl(mode: NapcatMode, url: string): string | undefined {
-  if (url.trim() === "") return "不能为空：此处为 NapCat 侧监听的地址"
+  if (url.trim() === "") return "不能为空：此处为对端监听的地址"
 
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
-    return `${url} 不是合法地址，应形如 ws://127.0.0.1:3001`
+    return `${url} 不是合法地址，应形如 ${mode === "ws" ? DEFAULT_WS_URL : DEFAULT_HTTP_URL}`
   }
 
   const wanted = mode === "ws" ? ["ws:", "wss:"] : ["http:", "https:"]
@@ -208,19 +226,20 @@ function checkUrl(mode: NapcatMode, url: string): string | undefined {
  * @throws SchemaError 校验不通过；`issues[].path` 与表单字段名对应，面板据此标记对应输入框
  */
 export function validateAccount(input: unknown): NapcatAccount {
-  const account = ACCOUNT_SCHEMA.parse(input)
+  const account = ACCOUNT_SCHEMA.parse(migrateLegacy(input))
   const mode = account.mode
   const issues: SchemaIssue[] = []
 
   if (isOutbound(mode)) {
-    const problem = checkUrl(mode, account.url)
-    if (problem !== undefined) issues.push({ path: "url", message: problem, severity: "error" })
+    const field = mode === "ws" ? "url" : "httpUrl"
+    const problem = checkUrl(mode, account[field])
+    if (problem !== undefined) issues.push({ path: field, message: problem, severity: "error" })
   }
 
   if (isInbound(mode)) {
     const path = account.listenPath.trim()
     if (path === "") {
-      issues.push({ path: "listenPath", message: "不能为空：NapCat 需要一条可连入的路径", severity: "error" })
+      issues.push({ path: "listenPath", message: "不能为空：对端需要一条可连入的路径", severity: "error" })
     } else if (!path.startsWith("/")) {
       issues.push({ path: "listenPath", message: `应以 / 开头，如 /napcat（当前为 ${path}）`, severity: "error" })
     }
@@ -228,5 +247,32 @@ export function validateAccount(input: unknown): NapcatAccount {
 
   if (issues.length > 0) throw new SchemaError(issues)
 
-  return { ...account, url: account.url.trim(), listenPath: account.listenPath.trim() }
+  return { ...account, url: account.url.trim(), httpUrl: account.httpUrl.trim(), listenPath: account.listenPath.trim() }
+}
+
+/**
+ * 当前模式下要连的对端地址
+ * @param account 已校验的账号配置
+ * @returns 正向 WS 取 `url`，两种 HTTP 取 `httpUrl`；反向 WS 没有
+ */
+export function peerUrlOf(account: NapcatAccount): string {
+  if (account.mode === "ws") return account.url
+  return isOutbound(account.mode) ? account.httpUrl : ""
+}
+
+/**
+ * 旧账号的 HTTP 地址搬到 `httpUrl`
+ *
+ * 0.6.0 之前两种 HTTP 模式的地址也存在 `url` 里。只认「HTTP 模式 + `httpUrl` 没填 + `url` 是 http(s)」：
+ * 编辑旧账号时 `httpUrl` 一栏是空的，原样保存也不会丢掉原来的地址。
+ * @param input 原始配置
+ * @returns 搬过之后的配置；无须搬时原样返回
+ */
+function migrateLegacy(input: unknown): unknown {
+  if (typeof input !== "object" || input === null) return input
+  const raw = input as Record<string, unknown>
+  if (raw.mode !== "http" && raw.mode !== "http-post") return input
+  if (typeof raw.httpUrl === "string" && raw.httpUrl.trim() !== "") return input
+  if (typeof raw.url !== "string" || !/^https?:\/\//i.test(raw.url.trim())) return input
+  return { ...raw, httpUrl: raw.url }
 }

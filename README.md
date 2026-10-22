@@ -1,13 +1,14 @@
-# adapter-napcat
+# adapter-onebot
 
-Yunzai NG 的 NapCat 适配器，以 OneBot v11 协议接入，支持正向 WebSocket、反向 WebSocket、
-HTTP 与 HTTP 上报四种网络模式。
+Yunzai NG 的 OneBot v11 适配器，接 [NapCat](https://napneko.github.io/) 与
+[LLOneBot](https://github.com/LLOneBot/LuckyLilliaBot)（现名 LuckyLilliaBot），支持正向 WebSocket、
+反向 WebSocket、HTTP 与 HTTP 上报四种网络模式。原名 adapter-napcat；适配器 id 仍是 `napcat`，已有账号不受影响。
 
 本仓库是 [Yunzai NG](https://github.com/Yunzai-NG/yunzai-ng) 的官方可选插件，不随内核分发。
 
 ## 安装
 
-推荐经面板的插件市场安装：面板 → 插件市场 → 搜索 `adapter-napcat` → 安装。**装依赖与编译都由内核代跑**
+推荐经面板的插件市场安装：面板 → 插件市场 → 搜索 `adapter-onebot` → 安装。**装依赖与编译都由内核代跑**
 （索引里声明了 `setup.scripts: ["build"]`），故这条路装完即可用 —— 本仓库的 `dist/` 不进 git，
 不编译就没有入口。
 
@@ -15,8 +16,8 @@ HTTP 与 HTTP 上报四种网络模式。
 
 ```powershell
 cd <主目录>\plugins
-git clone https://github.com/Yunzai-NG/adapter-napcat.git
-cd adapter-napcat
+git clone https://github.com/Yunzai-NG/adapter-onebot.git
+cd adapter-onebot
 pnpm install
 pnpm run build
 ```
@@ -25,9 +26,10 @@ pnpm run build
 
 ## 配置
 
-首次加载后于 `<主目录>/config/adapter-napcat.yaml` 生成配置文件，亦可在面板的插件页直接编辑。
-账号的连接方式与 NapCat 侧的对应关系见
-[上手文档](https://github.com/Yunzai-NG/yunzai-ng/blob/main/docs/getting-started.md#添加-qq-账号)。
+本插件没有插件级配置，连接参数都在账号里：面板 → 账号 → 「OneBot v11（NapCat / LLOneBot）」页签 → 添加账号。
+连接方式与协议端那边怎么对应、各栏的缺省值，见[文档](https://yunzai-ng.github.io/plugins/adapter-onebot)。
+
+从 adapter-napcat 换过来：在插件页删掉 adapter-napcat 的目录，再从插件市场装本插件。账号与协议端的配置都不用动。
 
 ## 开发
 
@@ -41,7 +43,7 @@ cd yunzai-ng
 pnpm install
 pnpm run build          # 必需：本插件的 tsc 读取框架的 dist/*.d.ts
 
-cd ..\adapter-napcat
+cd ..\adapter-onebot
 pnpm install
 pnpm run link:framework # 在 node_modules/@yunzai-ng 下建立指向框架的链接
 pnpm run verify         # build → typecheck:test → lint → test

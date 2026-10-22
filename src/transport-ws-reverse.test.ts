@@ -188,10 +188,15 @@ describe("反向 WS 通道", () => {
     await transport.close()
   })
 
-  it("未配置 token 时不校验握手", async () => {
+  it("未配置 token 时只放本机连入：面板监听在 0.0.0.0 时，别人不能冒充对端", async () => {
     const { transport, endpoint } = setup()
     void transport.open().catch(() => undefined)
-    expect(await endpoint().opts?.verify?.(REQ)).toBe(true)
+    const verify = endpoint().opts?.verify
+    expect(await verify?.(REQ)).toBe(true)
+    expect(await verify?.({ headers: {}, query: {}, ip: "::ffff:127.0.0.1" } as unknown as RouteRequest)).toBe(true)
+    expect(await verify?.({ headers: {}, query: {}, ip: "::1" } as unknown as RouteRequest)).toBe(true)
+    expect(await verify?.({ headers: {}, query: {}, ip: "172.17.0.2" } as unknown as RouteRequest)).toBe(false)
+    expect(await verify?.({ headers: {}, query: {}, ip: "203.0.113.9" } as unknown as RouteRequest)).toBe(false)
     await transport.close()
   })
 

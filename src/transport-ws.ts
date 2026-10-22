@@ -13,6 +13,7 @@
  *          相互冲突的重连逻辑。
  */
 import WebSocket from "ws"
+import { PEER } from "./dialect.js"
 import type { Transport, TransportHooks } from "./transport.js"
 import { WsSession } from "./ws-session.js"
 import type { Wire } from "./ws-session.js"
@@ -45,13 +46,13 @@ function explain(url: string, err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
 
   if (text.includes("ECONNREFUSED")) {
-    return `无法连接 ${url}：NapCat 未在该端口上监听。请检查其「网络配置」中该条正向 WS 是否已启用、端口是否与此处填写的一致`
+    return `无法连接 ${url}：对端未在该端口上监听。请检查 ${PEER} 的网络配置中该条 WebSocket 服务器是否已启用、端口是否与此处填写的一致`
   }
   if (text.includes("ENOTFOUND") || text.includes("EAI_AGAIN")) {
     return `无法解析 ${url} 的主机名：请检查地址是否有误，容器部署时须使用容器网络中的主机名`
   }
   if (text.includes("403") || text.includes("401")) {
-    return `${url} 拒绝了握手（${text}）：Access Token 与 NapCat 该条网络配置中的取值不一致`
+    return `${url} 拒绝了握手（${text}）：Access Token 与对端该条网络配置中的取值不一致`
   }
   if (text.includes("404")) {
     return `${url} 返回 404：地址中的路径有误，正向 WS 通常无需路径，如 ws://127.0.0.1:3001`
@@ -157,12 +158,12 @@ export function createWsClientTransport(opts: WsClientOptions): Transport {
       })
       next.on("error", (err: Error) => {
         // 连接建立之后的 error 必然紧随一个 close，此处仅记录日志，下线由 close 统一上报
-        opts.hooks.logger.warn(`与 NapCat 的连接出错：${err.message}`)
+        opts.hooks.logger.warn(`与对端的连接出错：${err.message}`)
       })
       next.on("close", (code: number, reasonBuf: Buffer) => {
         if (closed) return
         const detail = reasonBuf.length > 0 ? `：${reasonBuf.toString()}` : ""
-        const reason = `NapCat 关闭了连接（code=${code}）${detail}`
+        const reason = `对端关闭了连接（code=${code}）${detail}`
         teardown(reason)
         opts.hooks.onClosed(reason)
       })

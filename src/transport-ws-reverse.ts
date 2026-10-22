@@ -12,6 +12,7 @@
  *          若予接管，将有两条 socket 向同一账号投递事件，同一条消息会被处理两次。
  */
 import type { Disposer, RouteRequest, WebSocketConnection, WebSocketHandler, WebSocketOptions } from "@yunzai-ng/types"
+import { PEER } from "./dialect.js"
 import { TimeoutError } from "@yunzai-ng/core"
 import { checkToken, headerOf, SELF_ID_HEADER } from "./transport.js"
 import type { Transport, TransportHooks } from "./transport.js"
@@ -103,13 +104,13 @@ export function createWsReverseTransport(opts: WsReverseOptions): Transport {
    */
   const accept = (conn: WebSocketConnection, req: RouteRequest): void => {
     if (active !== undefined && active.open) {
-      opts.hooks.logger.warn(`已存在一条 NapCat 连接（来自 ${active.ip}），拒绝 ${conn.ip} 的重复接入`)
+      opts.hooks.logger.warn(`已存在一条对端连接（来自 ${active.ip}），拒绝 ${conn.ip} 的重复接入`)
       conn.close(1008)
       return
     }
 
     const selfId = headerOf(req, SELF_ID_HEADER)
-    opts.hooks.logger.info(`NapCat 已连入（来自 ${conn.ip}${selfId === "" ? "" : `，账号 ${selfId}`}）`)
+    opts.hooks.logger.info(`对端已连入（来自 ${conn.ip}${selfId === "" ? "" : `，账号 ${selfId}`}）`)
 
     active = conn
     const wire: Wire = {
@@ -124,11 +125,11 @@ export function createWsReverseTransport(opts: WsReverseOptions): Transport {
     session.attach(wire)
 
     conn.onMessage(data => session.feed(data))
-    conn.onError(err => opts.hooks.logger.warn(`NapCat 连接出错：${err.message}`))
+    conn.onError(err => opts.hooks.logger.warn(`对端连接出错：${err.message}`))
     conn.onClose((code, reason) => {
       if (closed || active !== conn) return
       const detail = reason === "" ? "" : `：${reason}`
-      const text = `NapCat 断开了连接（code=${code}）${detail}`
+      const text = `对端断开了连接（code=${code}）${detail}`
       teardown(text)
       opts.hooks.onClosed(text)
     })
@@ -149,19 +150,23 @@ export function createWsReverseTransport(opts: WsReverseOptions): Transport {
       unregister = opts.register(opts.path, accept, {
         verify: (req: RouteRequest) => {
           if (checkToken(req, opts.token)) return true
-          opts.hooks.logger.warn(`拒绝了来自 ${req.ip} 的反向 WS 握手：Access Token 不匹配`)
+          opts.hooks.logger.warn(
+            opts.token === ""
+              ? `拒绝了来自 ${req.ip} 的反向 WS 握手：账号没填 Access Token 时只接受本机连入。对端不在本机时，两边填上同一个 token`
+              : `拒绝了来自 ${req.ip} 的反向 WS 握手：Access Token 不匹配`
+          )
           return false
         }
       })
-      opts.hooks.logger.info(`反向 WS 端点已挂载，请在 NapCat 中将地址填写为 ${opts.publicWsUrl}`)
+      opts.hooks.logger.info(`反向 WS 端点已挂载，请在 ${PEER} 的 WebSocket 客户端中将地址填写为 ${opts.publicWsUrl}`)
 
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           arrive = undefined
           reject(
             new TimeoutError(
-              `等待 ${Math.round(WAIT_FIRST_MS / 1000)} 秒后仍无 NapCat 连入。` +
-                `请确认 NapCat 的「网络配置」中存在一条反向 WS 指向 ${opts.publicWsUrl}，且 Access Token 一致（将自动重试）`
+              `等待 ${Math.round(WAIT_FIRST_MS / 1000)} 秒后仍无对端连入。` +
+                `请确认 ${PEER} 的网络配置中存在一条 WebSocket 客户端指向 ${opts.publicWsUrl}，且 Access Token 一致（将自动重试）`
             )
           )
         }, WAIT_FIRST_MS)

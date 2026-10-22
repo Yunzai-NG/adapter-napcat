@@ -148,7 +148,7 @@ export class WsSession {
   async call<T>(action: string, params: Record<string, unknown> = {}): Promise<T> {
     const wire = this.#wire
     if (wire === undefined || !wire.open) {
-      throw new Error(`无法调用 ${action}：与 NapCat 的连接尚未建立或已断开`)
+      throw new Error(`无法调用 ${action}：与对端的连接尚未建立或已断开`)
     }
     const res = await this.#pending.invoke<ApiResponse<T>>(action, echo => {
       wire.send(JSON.stringify({ action, params, echo }))

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest"
 import { SchemaError } from "@yunzai-ng/core"
-import { ACCOUNT_SCHEMA, isInbound, isOutbound, validateAccount } from "./config.js"
+import { ACCOUNT_SCHEMA, isInbound, isOutbound, peerUrlOf, validateAccount } from "./config.js"
 
 describe("账号配置", () => {
   it("仅填写 mode 亦可得到一份可用配置", () => {
@@ -31,8 +31,30 @@ describe("账号配置", () => {
     }
   })
 
-  it("HTTP 模式填入 ws:// 同样被拦截", () => {
-    expect(() => validateAccount({ mode: "http", url: "ws://127.0.0.1:3000" })).toThrow(/http:\/\//)
+  it("HTTP 模式填入 ws:// 同样被拦截，报在 httpUrl 上", () => {
+    try {
+      validateAccount({ mode: "http", httpUrl: "ws://127.0.0.1:3000" })
+      expect.unreachable("应当抛出")
+    } catch (err) {
+      expect((err as SchemaError).issues[0]?.path).toBe("httpUrl")
+      expect((err as SchemaError).issues[0]?.message).toContain("http://")
+    }
+  })
+
+  it("两种地址各有自己的缺省值：选了 HTTP 预填的是 http:// 地址", () => {
+    const http = validateAccount({ mode: "http" })
+    expect(http.httpUrl).toBe("http://127.0.0.1:3000")
+    expect(peerUrlOf(http)).toBe("http://127.0.0.1:3000")
+    expect(peerUrlOf(validateAccount({ mode: "ws" }))).toBe("ws://127.0.0.1:3001")
+    expect(peerUrlOf(validateAccount({ mode: "ws-reverse" }))).toBe("")
+  })
+
+  it("旧账号存在 url 里的 HTTP 地址搬到 httpUrl，编辑后原样保存也不丢", () => {
+    expect(validateAccount({ mode: "http", url: "http://10.0.0.2:3000" }).httpUrl).toBe("http://10.0.0.2:3000")
+    expect(validateAccount({ mode: "http-post", url: "http://10.0.0.2:3000", httpUrl: "" }).httpUrl).toBe("http://10.0.0.2:3000")
+    // 新填的 httpUrl 优先；正向 WS 的 url 不会被当成 HTTP 地址
+    expect(validateAccount({ mode: "http", url: "http://old:3000", httpUrl: "http://new:3000" }).httpUrl).toBe("http://new:3000")
+    expect(validateAccount({ mode: "http", url: "ws://127.0.0.1:3001" }).httpUrl).toBe("http://127.0.0.1:3000")
   })
 
   it("反向 WS 不校验 url，但要求监听路径以 / 开头", () => {
@@ -42,11 +64,11 @@ describe("账号配置", () => {
     expect(() => validateAccount({ mode: "ws-reverse", listenPath: "  " })).toThrow(/不能为空/)
   })
 
-  it("http-post 同时须填写 NapCat 地址与本机监听路径", () => {
-    const account = validateAccount({ mode: "http-post", url: "http://127.0.0.1:3000", listenPath: "/napcat" })
+  it("http-post 同时须填写对端地址与本机监听路径", () => {
+    const account = validateAccount({ mode: "http-post", httpUrl: "http://127.0.0.1:3000", listenPath: "/napcat" })
     expect(isOutbound(account.mode)).toBe(true)
     expect(isInbound(account.mode)).toBe(true)
-    expect(() => validateAccount({ mode: "http-post", url: "", listenPath: "/napcat" })).toThrow(/不能为空/)
+    expect(() => validateAccount({ mode: "http-post", httpUrl: "  ", listenPath: "/napcat" })).toThrow(/不能为空/)
   })
 
   it("地址两端的空白被剔除", () => {
@@ -66,8 +88,11 @@ describe("账号配置", () => {
   it("表单描述中包含四种模式与条件显隐信息", () => {
     const shape = ACCOUNT_SCHEMA.describe().properties
     expect(shape?.mode?.enum?.map(item => item.value)).toEqual(["ws", "ws-reverse", "http", "http-post"])
-    // 数组形式的 showWhen 表示"取其中之一"：地址在三种主动连出的模式下均须填写
-    expect(shape?.url?.showWhen).toEqual({ mode: ["ws", "http", "http-post"] })
+    // 数组形式的 showWhen 表示"取其中之一"：WS 地址只在正向 WS 出现，HTTP 地址只在两种 HTTP 模式出现
+    expect(shape?.url?.showWhen).toEqual({ mode: ["ws"] })
+    expect(shape?.httpUrl?.showWhen).toEqual({ mode: ["http", "http-post"] })
     expect(shape?.listenPath?.showWhen).toEqual({ mode: ["ws-reverse", "http-post"] })
+    // 只发不收的 HTTP 模式下没有消息进来，「忽略自身消息」无从谈起
+    expect(shape?.ignoreSelf?.showWhen).toEqual({ mode: ["ws", "ws-reverse", "http-post"] })
   })
 })

@@ -81,8 +81,8 @@ export class PendingCalls {
         this.#entries.delete(echo)
         reject(
           new TimeoutError(
-            `NapCat 调用 ${action} 在 ${this.#timeout}ms 内未收到响应（echo=${echo}）。` +
-              `常见原因：NapCat 侧不支持该接口，或连接已失效而 socket 尚未关闭`
+            `调用 ${action} 在 ${this.#timeout}ms 内未收到响应（echo=${echo}）。` +
+              `常见原因：对端不支持该接口，或连接已失效而 socket 尚未关闭`
           )
         )
       }, this.#timeout)
@@ -138,7 +138,7 @@ export class PendingCalls {
     this.#entries.clear()
     for (const [echo, entry] of entries) {
       clearTimeout(entry.timer)
-      entry.reject(new Error(`NapCat 调用 ${entry.action} 未能完成：${reason}（echo=${echo}）`))
+      entry.reject(new Error(`调用 ${entry.action} 未能完成：${reason}（echo=${echo}）`))
     }
     return entries.length
   }

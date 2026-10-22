@@ -248,6 +248,20 @@ describe("通知事件", () => {
     expect(decodeEvent(group)).toBeUndefined()
   })
 
+  it("LLOneBot 的私聊戳一戳没有 sender_id：好友戳机器人照常解析", () => {
+    // OB11FriendPokeEvent(user_id=好友, target_id=自己)
+    expect(
+      decodeEvent({ post_type: "notice", notice_type: "notify", sub_type: "poke", self_id: 10000, user_id: 2, target_id: 10000 })
+    ).toMatchObject({ noticeType: "poke", uid: "2", targetId: "10000" })
+  })
+
+  it("LLOneBot 里机器人戳好友报成「好友戳好友」：认作自己戳的，缺省不投", () => {
+    // 它给的 user_id 与 target_id 都是那位好友；不拦下来的话「谁戳就戳谁」会自己跟自己没完
+    const own = { post_type: "notice", notice_type: "notify", sub_type: "poke", self_id: 10000, user_id: 2, target_id: 2 }
+    expect(decodeEvent(own)).toBeUndefined()
+    expect(decodeEvent(own, { selfMessages: true })).toMatchObject({ uid: "10000", targetId: "2" })
+  })
+
   it("戳一戳写成一行日志，动作词与后缀取自灰条", () => {
     const payload = {
       notice_type: "notify",

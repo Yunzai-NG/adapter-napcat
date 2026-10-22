@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest"
 import { AbortError, TimeoutError } from "@yunzai-ng/core"
 import { fakeLogger } from "@yunzai-ng/core/testing"
-import type { HttpClient, HttpResponse } from "@yunzai-ng/types"
+import type { HttpClient, HttpResponse, RouteHandler, RouteRequest, RouteResponse } from "@yunzai-ng/types"
 import { createHttpTransport } from "./transport-http.js"
 
 /**
@@ -72,18 +72,18 @@ function setup(http: HttpClient) {
 }
 
 describe("HTTP 通道的错误归因", () => {
-  it("中止原样抛出，不归因为 NapCat 配置错误", async () => {
+  it("中止原样抛出，不归因为对端配置错误", async () => {
     const transport = setup(failingHttp(new AbortError("请求已被取消：POST http://127.0.0.1:3000/get_login_info")))
 
     await expect(transport.open()).rejects.toThrow(AbortError)
     // 归因错了的话，使用者会去翻一个本来正常的 NapCat
-    await expect(transport.open()).rejects.not.toThrow(/请检查 NapCat/)
+    await expect(transport.open()).rejects.not.toThrow(/请检查/)
   })
 
-  it("其余网络错误仍归因到 NapCat 的网络配置", async () => {
+  it("其余网络错误仍归因到对端的网络配置", async () => {
     const transport = setup(failingHttp(new TimeoutError("连接超时")))
 
-    await expect(transport.open()).rejects.toThrow(/请检查 NapCat 的「网络配置」/)
+    await expect(transport.open()).rejects.toThrow(/请检查 NapCat \/ LLOneBot 的网络配置/)
     // 原始错误信息须保留，否则无从判断是超时还是拒绝连接
     await expect(transport.open()).rejects.toThrow(/连接超时/)
   })
@@ -100,12 +100,62 @@ describe("HTTP 通道的错误归因", () => {
   it("鉴权失败的状态码指向 token 不一致，而非地址错误", async () => {
     const transport = setup(stubHttp({ status: 403 }))
 
-    await expect(transport.open()).rejects.toThrow(/Access Token 与 NapCat 侧的取值不一致/)
+    await expect(transport.open()).rejects.toThrow(/Access Token 与对端的取值不一致/)
   })
 
-  it("响应不是 JSON 对象时指出对端可能并非 NapCat", async () => {
+  it("响应不是 JSON 对象时指出对端可能不是 OneBot v11 实现", async () => {
     const transport = setup(stubHttp({ status: 200, data: "<html>404</html>" }))
 
-    await expect(transport.open()).rejects.toThrow(/对端可能并非 NapCat/)
+    await expect(transport.open()).rejects.toThrow(/对端可能不是 OneBot v11 实现/)
+  })
+
+  it("404 带着 OneBot 报文时照报文说不支持该 API（LLOneBot 对不认识的 action 就这样回）", async () => {
+    const transport = setup(
+      stubHttp({ status: 404, data: { status: "failed", retcode: 404, data: null, message: "foo API 不存在", wording: "foo API 不存在" } })
+    )
+    await expect(transport.open()).rejects.toThrow(/get_login_info 失败（retcode=404）：foo API 不存在/)
+  })
+
+  it("404 不带 OneBot 报文时仍指出该地址可能指向了别的服务", async () => {
+    const transport = setup(stubHttp({ status: 404, data: "Not Found" }))
+    await expect(transport.open()).rejects.toThrow(/可能指向了其他服务/)
+  })
+})
+
+describe("HTTP 上报端点", () => {
+  /**
+   * 挂好上报端点，返回它的处理函数与收到的事件
+   * @param token 账号的 Access Token
+   * @returns 处理函数与事件列表
+   */
+  async function mountReport(token: string) {
+    const events: unknown[] = []
+    let handler: RouteHandler | undefined
+    const transport = createHttpTransport({
+      inbound: true,
+      url: "http://127.0.0.1:3000",
+      path: "/napcat",
+      token,
+      timeout: 1000,
+      publicPostUrl: "http://127.0.0.1:2536/adapter/napcat/napcat",
+      http: stubHttp({ status: 200, data: { status: "ok", retcode: 0, data: { user_id: 1, nickname: "n" } } }),
+      hooks: { logger: fakeLogger(), onEvent: p => events.push(p), onClosed: () => undefined },
+      register: (_method, _path, h) => {
+        handler = h
+        return () => undefined
+      }
+    })
+    await transport.open()
+    if (handler === undefined) throw new Error("上报端点没挂上")
+    const post = async (ip: string) =>
+      (await handler!({ ip, headers: {}, query: {}, params: {}, body: { post_type: "message" }, rawBody: Buffer.from("{}") } as unknown as RouteRequest)) as RouteResponse
+    return { post, events }
+  }
+
+  it("未配置 token 时只收本机的上报", async () => {
+    const { post, events } = await mountReport("")
+    expect((await post("127.0.0.1"))?.status).toBe(204)
+    expect((await post("192.168.1.20"))?.status).toBe(403)
+    expect(events).toHaveLength(1)
   })
 })

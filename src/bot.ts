@@ -1,11 +1,11 @@
 /**
- * 模块职责：`BotDriver` 实现 —— 将内核的通用能力面转换为 NapCat 的 API 调用
+ * 模块职责：`BotDriver` 实现 —— 将内核的通用能力面转换为 OneBot v11（NapCat / LLOneBot）的 API 调用
  * 依赖方向：依赖 transport / codec / events / config 与类型包
  * 生命周期：一个账号对应一个实例，`connect()` 与 `disconnect()` 各调用一次
  * 注意事项：**`SendOptions` 里只有 `quote` 会传到本层。** 超长切分、`recallAfter`、`autoForward` 都由
  *          内核的 Bot 门面在调用本驱动之前处理完了，此处再实现一遍只会得到两套互相冲突的切分逻辑。
  *
- *          **`message_id` 在 NapCat 里是数字**，而通用模型里一律是字符串，故回传时必须转数字 ——
+ *          **`message_id` 在 NapCat 与 LLOneBot 里都是数字**，而通用模型里一律是字符串，故回传时必须转数字 ——
  *          传字符串会被它的 schema 拒绝、返回 `retcode: 1400`，而那条错误信息完全看不出是类型问题。
  *
  *          **群成员按需拉取 + LRU/TTL。** 启动时全量写入且从不淘汰的话，数十个千人群就占几百 MB。
@@ -16,7 +16,8 @@
  *          `send_*_forward_msg`；不截取的话编码阶段会把它丢掉，表现为「调了 reply 却什么都没发出」。
  *
  *          **戳一戳段同样在此截取，改走 `send_poke`。** NapCat 的 send_msg 把 poke 段转成空（源码里
- *          `[OB11MessageDataType.poke]: async () => undefined`），只带它一段时报「消息为空」。
+ *          `[OB11MessageDataType.poke]: async () => undefined`），只带它一段时报「消息为空」。LLOneBot
+ *          的 send_msg 干脆不认 poke 段，同样得走 send_poke，参数两家一样。
  */
 import type {
   AdapterHost,
@@ -41,8 +42,9 @@ import type {
 import { parseDuration, seg, toSegments } from "@yunzai-ng/core"
 import { encodeNodes, encodeSegments, normalizeFileSegments, PLATFORM } from "./codec.js"
 import { decodeMessage } from "./codec.js"
+import { detectImpl, implLabel } from "./dialect.js"
 import { decodeEvent, describePoke, isPoke } from "./events.js"
-import { isInbound, isOutbound } from "./config.js"
+import { isInbound, isOutbound, peerUrlOf } from "./config.js"
 import type { NapcatAccount } from "./config.js"
 import { num, obj, str } from "./fields.js"
 import type { Fields } from "./fields.js"
@@ -109,6 +111,17 @@ function groupAvatar(gid: string): string {
 function messageIdParam(messageId: string): string | number {
   const parsed = Number(messageId)
   return Number.isSafeInteger(parsed) ? parsed : messageId
+}
+
+/**
+ * `get_file` 的参数
+ *
+ * LLOneBot 只认 `file`，NapCat 两个都认（`file` 为空时取 `file_id`），故两个一起送。
+ * @param fileId 平台文件 id
+ * @returns 参数
+ */
+function getFileParams(fileId: string): Record<string, unknown> {
+  return { file: fileId, file_id: fileId }
 }
 
 /**
@@ -244,7 +257,7 @@ function buildTransport(
     case "http-post":
       return createHttpTransport({
         inbound: account.mode === "http-post",
-        url: account.url,
+        url: account.httpUrl,
         path: account.listenPath,
         token: account.token,
         timeout,
@@ -267,8 +280,8 @@ function buildTransport(
 export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps: NapcatBotDeps): BotDriver {
   // 配置校验已执行过一次，此处为"被测试或其他插件直接构造"场景保留的断言 ——
   // 空地址将使 ws 客户端以一个含义不明的 URL 解析错误失败
-  if (isOutbound(account.mode) && account.url === "") {
-    throw new Error(`${account.mode} 模式必须填写 NapCat 地址`)
+  if (isOutbound(account.mode) && peerUrlOf(account) === "") {
+    throw new Error(`${account.mode} 模式必须填写对端地址`)
   }
 
   /** 平台账号 id，连接建立后回填 */
@@ -326,7 +339,7 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
    */
   const probeFile = async (fileId: string): Promise<MediaRef | undefined> => {
     try {
-      return fileRefFromGetFile((await call<Fields>("get_file", { file_id: fileId })) as OneBotFileFields)
+      return fileRefFromGetFile((await call<Fields>("get_file", getFileParams(fileId))) as OneBotFileFields)
     } catch {
       return undefined
     }
@@ -346,7 +359,7 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
         ? { message_type: "private", user_id: target.uid }
         : { message_type: "private", user_id: target.uid, group_id: target.gid }
     }
-    throw new Error("NapCat 适配器不支持频道消息：OneBot v11 中不存在频道这一概念")
+    throw new Error("本适配器不支持频道消息：OneBot v11 中不存在频道这一概念")
   }
 
   /**
@@ -381,7 +394,7 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
     const params: Record<string, unknown> = { messages }
     if (target.scene === "group") params["group_id"] = target.gid
     else if (target.scene === "private") params["user_id"] = target.uid
-    else throw new Error("NapCat 适配器不支持向频道发送合并转发")
+    else throw new Error("本适配器不支持向频道发送合并转发")
 
     // 外显字段位于**顶层**而非 node 之内 —— 置于 node 中不会报错，仅静默不生效
     if (display.source !== undefined) params["source"] = display.source
@@ -408,7 +421,7 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
     } else if (target.scene === "private") {
       params = { user_id: target.uid, target_id: poke.uid ?? target.uid }
     } else {
-      throw new Error("NapCat 适配器不支持在频道里戳一戳")
+      throw new Error("本适配器不支持在频道里戳一戳")
     }
     return toSendResult(await call("send_poke", params))
   }
@@ -436,7 +449,9 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
       const info = await call<Fields>("get_login_info")
       selfId = str(info, "user_id") ?? selfId
       nickname = str(info, "nickname") ?? ""
-      host.logger.info(`已接入 NapCat：${nickname || selfId}（${transport.describe}）`)
+      // 只为日志里说清连上的是谁；认不出也照常连，见 dialect.ts
+      const peer = await detectImpl(action => call(action))
+      host.logger.info(`已接入 ${implLabel(peer)}：${nickname || selfId}（${transport.describe}）`)
     },
 
     async disconnect(): Promise<void> {
@@ -599,7 +614,7 @@ export function createNapcatBot(account: NapcatAccount, host: AdapterHost, deps:
     async getFileUrl(fileId: string): Promise<string> {
       // 与 probeFile 不同,这里不吞错:网络失败该冒泡给调用方(BotApi 的约定)。
       // 拿不到可用地址时也明确抛错,不返回空串 —— 空串会被下游当成一个合法但指向空的地址
-      const ref = fileRefFromGetFile((await call<Fields>("get_file", { file_id: fileId })) as OneBotFileFields)
+      const ref = fileRefFromGetFile((await call<Fields>("get_file", getFileParams(fileId))) as OneBotFileFields)
       if (ref === undefined) {
         throw new Error(`get_file 未返回可用的 url 或本地路径（file_id=${fileId}）`)
       }

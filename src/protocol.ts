@@ -2,8 +2,8 @@
  * 模块职责：OneBot v11 的 API 信封 —— 请求形状、响应形状、失败判定
  * 依赖方向：叶子模块，不依赖内核，亦不依赖本插件其他文件
  * 生命周期：纯函数与类型
- * 注意事项：**成败只看 `status`，不看 HTTP 状态码，也不看「收到回复了」。** NapCat 对不认识的
- *          action 会回一条 `status: "failed"` 的正常报文（HTTP 模式下状态码甚至是 200），此时
+ * 注意事项：**成败只看 `status`，不看 HTTP 状态码，也不看「收到回复了」。** 对端对不认识的
+ *          action 会回一条 `status: "failed"` 的正常报文（NapCat 在 HTTP 模式下状态码甚至是 200），此时
  *          `data` 为 null —— 直接取用要到数层调用之后才以 "cannot read property of null" 显现。
  *          retcode 为何不参与判定，见 `unwrap()`。
  */
@@ -33,7 +33,7 @@ export interface ApiResponse<T = unknown> {
   data: T
   /** 英文错误标识 */
   message?: string
-  /** 中文错误原因（NapCat 扩展），报错时优先采用 */
+  /** 中文错误原因（NapCat 与 LLOneBot 都给），报错时优先采用 */
   wording?: string
   /** 回声标记，与请求中的一致 */
   echo?: string
@@ -58,18 +58,25 @@ export class NapcatApiError extends Error {
    * @param reason 原因描述
    */
   constructor(action: string, retcode: number, reason: string) {
-    super(`NapCat 调用 ${action} 失败（retcode=${retcode}）：${reason}`)
+    super(`调用 ${action} 失败（retcode=${retcode}）：${reason}`)
     this.action = action
     this.retcode = retcode
   }
 }
 
-/** 已知 retcode 对应的排查方向 */
+/**
+ * 已知 retcode 对应的排查方向
+ *
+ * WS 上两家同用 1200 / 1400；HTTP 上 LLOneBot 改用 200 / 400 / 404，NapCat 出错时也常回 200。
+ */
 const RETCODE_HINTS: Readonly<Record<number, string>> = {
-  1200: "NapCat 处理该请求时抛出异常",
+  200: "对端处理该请求时抛出异常",
+  400: "参数不合法，或报文未能被解析",
+  404: "对端不支持该 API",
+  1200: "对端处理该请求时抛出异常",
   1400: "参数不合法，或报文未能被解析",
   1403: "Access Token 校验失败",
-  1404: "NapCat 不支持该 API"
+  1404: "对端不支持该 API"
 }
 
 /**
@@ -89,7 +96,7 @@ export function isApiResponse(payload: unknown): payload is ApiResponse {
 /**
  * 自响应中取出数据，失败则抛错
  *
- * **成败仅依据 `status`，不依据 `retcode`。** NapCat 的 retcode 编号既不遵循 OneBot v11
+ * **成败仅依据 `status`，不依据 `retcode`。** NapCat 与 LLOneBot 的 retcode 编号都不遵循 OneBot v11
  * 标准，WS 与 HTTP 两条路径亦各不相同（HTTP 出错时甚至可能为 200），故其仅用于给出
  * 排查方向，不参与判定。
  * @param action API 名，用于错误信息
@@ -101,7 +108,7 @@ export function unwrap<T>(action: string, res: ApiResponse<T>): T {
   if (res.status === "ok" || res.status === "async") return res.data
 
   const hint = RETCODE_HINTS[res.retcode]
-  const reason = res.wording ?? res.message ?? hint ?? "NapCat 未给出原因"
+  const reason = res.wording ?? res.message ?? hint ?? "对端未给出原因"
   const suffix = hint !== undefined && reason !== hint ? `（${hint}）` : ""
   throw new NapcatApiError(action, res.retcode, `${reason}${suffix}`)
 }

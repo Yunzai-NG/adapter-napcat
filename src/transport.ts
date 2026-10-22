@@ -15,7 +15,7 @@
  *          重连、鉴权与错误处理。
  */
 import type { Logger, RouteRequest } from "@yunzai-ng/types"
-import { tokenEquals } from "@yunzai-ng/core"
+import { isLoopbackAddress, tokenEquals } from "@yunzai-ng/core"
 import type { NapcatMode } from "./config.js"
 
 /** 通道向上层回报的事件 */
@@ -101,12 +101,13 @@ export function headerOf(req: RouteRequest, name: string): string {
  *
  * 比较采用内核的 `tokenEquals`（SHA-256 摘要 + `timingSafeEqual`）而非 `===`：
  * 该端点对公网开放时，逐字节短路比较会将令牌正确前缀的长度泄漏为耗时差异。
+ * **令牌留空时只放本机。** 不然面板监听在 `0.0.0.0` 时，谁连进来都能冒充对端、伪造一条「主人发来的」消息。
  * @param req 握手或上报请求
- * @param expected 期望的令牌；空串表示不予校验
+ * @param expected 期望的令牌；空串表示不校验令牌、只认本机
  * @returns 是否通过
  */
 export function checkToken(req: RouteRequest, expected: string): boolean {
-  if (expected === "") return true
+  if (expected === "") return isLoopbackAddress(req.ip)
 
   const header = headerOf(req, AUTH_HEADER)
   const bearer = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : header

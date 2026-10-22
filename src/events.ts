@@ -12,9 +12,8 @@
  *          **引用只填 `messageId`，不补全正文。** 取正文要多调一次 `get_msg`，为每条含引用的消息都加
  *          一次 API 调用不可接受；内核会在插件实际使用时经 `QuoteResolver` 补全。
  *
- *          **私聊戳一戳的 `user_id` 是会话对方，不是发起者。** 发起者在 `sender_id`（NapCat
- *          `OB11FriendPokeEvent`）；群里的 `user_id` 才是发起者。照单取 `user_id` 的话，机器人戳好友
- *          会被读成「好友戳了好友」。
+ *          **私聊戳一戳的 `user_id` 是会话对方，不是发起者。** NapCat 把发起者另放在 `sender_id`；
+ *          LLOneBot 不给这个字段，见 `pokeParties`。群里的 `user_id` 才是发起者。
  */
 import type {
   GroupInfo,
@@ -142,12 +141,22 @@ export function isPoke(payload: Fields): boolean {
 
 /**
  * 取戳一戳的双方，见文件头第 4 条
+ *
+ * 私聊而**没有 `sender_id`**（LLOneBot）时，`user_id` 一律是那位好友，于是「机器人戳好友」报成了
+ * `user_id` 与 `target_id` 都是好友。照单取的话自戳过滤拦不住它，写成「谁戳就戳谁」的插件会自己
+ * 跟自己来回戳下去，故两者相同时把发起者认作机器人自己。代价是好友戳他自己也会被认成机器人戳他 ——
+ * 宁可错认这一种，也不放过前一种。
  * @param payload 戳一戳报文
  * @returns 发起者与被戳者
  */
 export function pokeParties(payload: Fields): { uid: string; targetId: string } {
-  const uid = str(payload, "group_id") === undefined ? (str(payload, "sender_id") ?? str(payload, "user_id")) : str(payload, "user_id")
-  return { uid: uid ?? "", targetId: str(payload, "target_id") ?? "" }
+  const targetId = str(payload, "target_id") ?? ""
+  if (str(payload, "group_id") !== undefined) return { uid: str(payload, "user_id") ?? "", targetId }
+  const sender = str(payload, "sender_id")
+  if (sender !== undefined) return { uid: sender, targetId }
+  const peer = str(payload, "user_id") ?? ""
+  const self = str(payload, "self_id")
+  return { uid: peer === targetId && self !== undefined ? self : peer, targetId }
 }
 
 /**
@@ -283,7 +292,7 @@ function decodeNoticeEvent(payload: Fields): IncomingNoticeEvent {
 }
 
 /**
- * 解析一条 NapCat 上报报文
+ * 解析一条上报报文
  *
  * @param payload 已解析的报文
  * @param opts 选项

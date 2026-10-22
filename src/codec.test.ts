@@ -118,7 +118,7 @@ describe("编码：本地文件的两条通道", () => {
 
   it("异机且文件不存在时，错误信息指明须调整的配置项", async () => {
     await expect(encodeSegments([seg.image(join(dir, "不存在的文件.png"))], REMOTE)).rejects.toThrow(
-      /NapCat 可读取本机文件/
+      /对端可读取本机文件/
     )
   })
 

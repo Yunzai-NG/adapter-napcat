@@ -12,6 +12,7 @@ import { WebSocketServer } from "ws"
 import type { WebSocket } from "ws"
 import { createCache, seg } from "@yunzai-ng/core"
 import { fakeHttp, fakeLogger } from "@yunzai-ng/core/testing"
+import type { FakeLogger } from "@yunzai-ng/core/testing"
 import type {
   AccountRecord,
   AccountStatus,
@@ -170,12 +171,41 @@ async function connected(token = ""): Promise<{ fake: FakeNapcat; host: TestHost
 }
 
 describe("正向 WS 端到端", () => {
-  it("连接建立后调用一次 get_login_info，回填账号与昵称", async () => {
+  it("连接建立后调用一次 get_login_info 回填账号与昵称，再探一次对端是谁", async () => {
     const { driver, fake } = await connected()
     expect(driver.selfId).toBe("10000")
     expect(driver.nickname).toBe("测试机器人")
     expect(driver.online).toBe(true)
-    expect(fake.requests.map(r => r.action)).toEqual(["get_login_info"])
+    expect(fake.requests.map(r => r.action)).toEqual(["get_login_info", "get_version_info"])
+  })
+
+  it("日志里写明连上的是 LLOneBot 还是 NapCat", async () => {
+    const fake = await startFakeNapcat()
+    cleanup.push(() => fake.close())
+    fake.reply = req =>
+      req.action === "get_login_info"
+        ? { user_id: 10000, nickname: "测试机器人" }
+        : { app_name: "LLOneBot", protocol_version: "v11", app_version: "7.4.2" }
+    const host = fakeHost()
+    const driver = createNapcatBot(validateAccount({ mode: "ws", url: fake.url }), host, { adapterId: "napcat", http: fakeHttp() })
+    cleanup.push(() => driver.disconnect())
+    await driver.connect()
+    const { lines } = host.logger as FakeLogger
+    expect(lines.some(line => line.startsWith("info 已接入 LLOneBot 7.4.2：测试机器人"))).toBe(true)
+  })
+
+  it("对端不认 get_version_info 也照常连上", async () => {
+    const fake = await startFakeNapcat()
+    cleanup.push(() => fake.close())
+    fake.reply = req => {
+      if (req.action === "get_login_info") return { user_id: 10000 }
+      fake.socket?.send(JSON.stringify({ status: "failed", retcode: 1404, data: null, echo: req.echo }))
+      return undefined
+    }
+    const driver = createNapcatBot(validateAccount({ mode: "ws", url: fake.url }), fakeHost(), { adapterId: "napcat", http: fakeHttp() })
+    cleanup.push(() => driver.disconnect())
+    await driver.connect()
+    expect(driver.online).toBe(true)
   })
 
   it("配置 token 时以 Bearer 形式置于 Authorization 头", async () => {
@@ -310,7 +340,7 @@ describe("正向 WS 端到端", () => {
 
     const result = await driver.sendMessage({ scene: "group", gid: "700000" }, [seg.text("别戳了"), seg.poke("10001")])
     expect(result.messageId).toBe("4")
-    expect(fake.requests.map(r => r.action)).toEqual(["get_login_info", "send_poke", "send_msg"])
+    expect(fake.requests.map(r => r.action)).toEqual(["get_login_info", "get_version_info", "send_poke", "send_msg"])
     expect(fake.requests.at(-1)?.params["message"]).toEqual([{ type: "text", data: { text: "别戳了" } }])
   })
 
@@ -476,7 +506,8 @@ describe("正向 WS 端到端", () => {
 
     expect(await driver.getFileUrl?.("F123")).toBe("https://cdn/x.png")
     const sent = fake.requests.find(r => r.action === "get_file")
-    expect(sent?.params).toEqual({ file_id: "F123" })
+    // LLOneBot 只认 file，NapCat 两个都认，故两个一起送
+    expect(sent?.params).toEqual({ file: "F123", file_id: "F123" })
   })
 
   it("get_file 无直链时退回本机绝对路径", async () => {
@@ -511,7 +542,7 @@ describe("正向 WS 端到端", () => {
     const record = await driver.getMessage?.("42")
     expect(record?.message[0]).toMatchObject({ type: "file", file: { kind: "url", url: "https://cdn/报告.pdf" } })
     // 确实是靠 get_file(file_id) 换来的
-    expect(fake.requests.find(r => r.action === "get_file")?.params).toEqual({ file_id: "FID-1" })
+    expect(fake.requests.find(r => r.action === "get_file")?.params).toEqual({ file: "FID-1", file_id: "FID-1" })
   })
 })
 

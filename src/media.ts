@@ -66,14 +66,14 @@ export async function encodeMedia(ref: MediaRef, opts: MediaEncodeOptions): Prom
         const text = err instanceof Error ? err.message : String(err)
         throw new Error(
           `读取 ${ref.path} 失败：${text}。` +
-            `当前账号配置中「NapCat 可读取本机文件」处于关闭状态，故须由框架自行读取文件并编码为 base64`
+            `当前账号配置中「对端可读取本机文件」处于关闭状态，故须由框架自行读取文件并编码为 base64`
         )
       }
       if (data.byteLength > opts.maxInlineBytes) {
         throw new Error(
           `${ref.path} 大小为 ${Math.round(data.byteLength / 1024)} KB，超过 base64 直传上限 ` +
-            `${Math.round(opts.maxInlineBytes / 1024)} KB。若 NapCat 与框架部署于同一台机器，` +
-            `请开启账号配置中的「NapCat 可读取本机文件」，即无需编码为 base64`
+            `${Math.round(opts.maxInlineBytes / 1024)} KB。若对端与框架部署于同一台机器，` +
+            `请开启账号配置中的「对端可读取本机文件」，即无需编码为 base64`
         )
       }
       return inlineBase64(data)
