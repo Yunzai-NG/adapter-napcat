@@ -1,11 +1,11 @@
 /**
- * 模块职责：`BotDriver` 实现 —— 将内核的通用能力面转换为 OneBot v11（NapCat / LLOneBot）的 API 调用
+ * 模块职责：`BotDriver` 实现 —— 将内核的通用能力面转换为 OneBot v11（NapCat / LLOneBot / SnowLuma）的 API 调用
  * 依赖方向：依赖 transport / codec / events / config 与类型包
  * 生命周期：一个账号对应一个实例，`connect()` 与 `disconnect()` 各调用一次
  * 注意事项：**`SendOptions` 里只有 `quote` 会传到本层。** 超长切分、`recallAfter`、`autoForward` 都由
  *          内核的 Bot 门面在调用本驱动之前处理完了，此处再实现一遍只会得到两套互相冲突的切分逻辑。
  *
- *          **`message_id` 在 NapCat 与 LLOneBot 里都是数字**，而通用模型里一律是字符串，故回传时必须转数字 ——
+ *          **`message_id` 在三家里都是数字**，而通用模型里一律是字符串，故回传时必须转数字 ——
  *          传字符串会被它的 schema 拒绝、返回 `retcode: 1400`，而那条错误信息完全看不出是类型问题。
  *
  *          **群成员按需拉取 + LRU/TTL。** 启动时全量写入且从不淘汰的话，数十个千人群就占几百 MB。
@@ -116,7 +116,7 @@ function messageIdParam(messageId: string): string | number {
 /**
  * `get_file` 的参数
  *
- * LLOneBot 只认 `file`，NapCat 两个都认（`file` 为空时取 `file_id`），故两个一起送。
+ * LLOneBot 只认 `file`，NapCat 与 SnowLuma 两个都认（`file` 为空时取 `file_id`），故两个一起送。
  * @param fileId 平台文件 id
  * @returns 参数
  */

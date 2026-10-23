@@ -1,7 +1,8 @@
 # adapter-onebot
 
-Yunzai NG 的 OneBot v11 适配器，接 [NapCat](https://napneko.github.io/) 与
-[LLOneBot](https://github.com/LLOneBot/LuckyLilliaBot)（现名 LuckyLilliaBot），支持正向 WebSocket、
+Yunzai NG 的 OneBot v11 适配器，接 [NapCat](https://napneko.github.io/)、
+[LLOneBot](https://github.com/LLOneBot/LuckyLilliaBot)（现名 LuckyLilliaBot）与
+[SnowLuma](https://snowluma.github.io/zh/)，支持正向 WebSocket、
 反向 WebSocket、HTTP 与 HTTP 上报四种网络模式。原名 adapter-napcat；适配器 id 仍是 `napcat`，已有账号不受影响。
 
 本仓库是 [Yunzai NG](https://github.com/Yunzai-NG/yunzai-ng) 的官方可选插件，不随内核分发。
@@ -26,7 +27,7 @@ pnpm run build
 
 ## 配置
 
-本插件没有插件级配置，连接参数都在账号里：面板 → 账号 → 「OneBot v11（NapCat / LLOneBot）」页签 → 添加账号。
+本插件没有插件级配置，连接参数都在账号里：面板 → 账号 → 「OneBot v11（NapCat / LLOneBot / SnowLuma）」页签 → 添加账号。
 连接方式与协议端那边怎么对应、各栏的缺省值，见[文档](https://yunzai-ng.github.io/plugins/adapter-onebot)。
 
 从 adapter-napcat 换过来：在插件页删掉 adapter-napcat 的目录，再从插件市场装本插件。账号与协议端的配置都不用动。

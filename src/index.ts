@@ -1,5 +1,5 @@
 /**
- * 模块职责：插件入口 —— 将 OneBot v11 适配器（NapCat / LLOneBot）注册至内核
+ * 模块职责：插件入口 —— 将 OneBot v11 适配器（NapCat / LLOneBot / SnowLuma）注册至内核
  * 依赖方向：仅依赖 `@yunzai-ng/core` 的公开入口与 `@yunzai-ng/types`
  * 生命周期：`setup` 在插件加载时执行一次，返回后适配器即可被账号引用
  * 注意事项：**本文件内容极少，此即"账号登录同为插件"这一设计所要达到的效果。**
@@ -10,7 +10,7 @@
  *          因此新增一个平台（Telegram、Discord、QQ 官方 Bot）无须改动内核代码，
  *          亦无须改动面板代码 —— 面板的"添加账号"表单由 `accountSchema` 实时渲染。
  *
- *          **未实现 `login()`。** NapCat 与 LLOneBot 的登录（扫码）都发生于它们自身的 WebUI 中，
+ *          **未实现 `login()`。** NapCat、LLOneBot 与 SnowLuma 的登录（扫码）都发生于它们自身的 WebUI 中，
  *          不属于本框架的流程。另行构造一个"扫码登录"页面只会使使用者误认为在此处
  *          完成扫码后即无须再关注对端。账号配置中填写的是"如何连接一个已完成登录的
  *          对端"，故仅需 `accountSchema`。
@@ -52,8 +52,8 @@ const plugin: PluginDefinition<Record<string, never>> = definePlugin({
   setup(ctx) {
     const provider: AdapterProvider<NapcatAccount> = {
       id: ADAPTER_ID,
-      name: "OneBot v11（NapCat / LLOneBot）",
-      description: "连接一个已完成登录的 NapCat 或 LLOneBot。登录过程在它们自身的 WebUI 中完成",
+      name: "OneBot v11（NapCat / LLOneBot / SnowLuma）",
+      description: "连接一个已完成登录的 NapCat、LLOneBot 或 SnowLuma。登录过程在它们自身的 WebUI 中完成",
       platform: PLATFORM,
       accountSchema: ACCOUNT_SCHEMA.describe(),
       validateAccount,
@@ -64,7 +64,7 @@ const plugin: PluginDefinition<Record<string, never>> = definePlugin({
     }
 
     ctx.registerAdapter(provider as unknown as AdapterProvider)
-    ctx.logger.info("OneBot v11 适配器（NapCat / LLOneBot）已注册，可在面板的账号页面添加账号")
+    ctx.logger.info("OneBot v11 适配器（NapCat / LLOneBot / SnowLuma）已注册，可在面板的账号页面添加账号")
   }
 })
 

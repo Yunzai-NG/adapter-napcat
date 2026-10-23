@@ -179,19 +179,22 @@ describe("正向 WS 端到端", () => {
     expect(fake.requests.map(r => r.action)).toEqual(["get_login_info", "get_version_info"])
   })
 
-  it("日志里写明连上的是 LLOneBot 还是 NapCat", async () => {
+  it.each([
+    ["LLOneBot", "7.4.2", "LLOneBot 7.4.2"],
+    ["SnowLuma", "2.1.1-node", "SnowLuma 2.1.1-node"]
+  ])("日志里写明连上的是哪一家：%s", async (appName, version, label) => {
     const fake = await startFakeNapcat()
     cleanup.push(() => fake.close())
     fake.reply = req =>
       req.action === "get_login_info"
         ? { user_id: 10000, nickname: "测试机器人" }
-        : { app_name: "LLOneBot", protocol_version: "v11", app_version: "7.4.2" }
+        : { app_name: appName, protocol_version: "v11", app_version: version }
     const host = fakeHost()
     const driver = createNapcatBot(validateAccount({ mode: "ws", url: fake.url }), host, { adapterId: "napcat", http: fakeHttp() })
     cleanup.push(() => driver.disconnect())
     await driver.connect()
     const { lines } = host.logger as FakeLogger
-    expect(lines.some(line => line.startsWith("info 已接入 LLOneBot 7.4.2：测试机器人"))).toBe(true)
+    expect(lines.some(line => line.startsWith(`info 已接入 ${label}：测试机器人`))).toBe(true)
   })
 
   it("对端不认 get_version_info 也照常连上", async () => {
@@ -230,6 +233,36 @@ describe("正向 WS 端到端", () => {
       http: fakeHttp()
     })
     await expect(driver.connect()).rejects.toThrow(/未在该端口上监听/)
+  })
+
+  it("对端要 token 而账号没填时，指明去哪儿抄（SnowLuma 自动生成 token）", async () => {
+    const server = new WebSocketServer({
+      host: "127.0.0.1",
+      port: 0,
+      verifyClient: (_info, done) => done(false, 401, "Unauthorized")
+    })
+    await new Promise<void>(resolve => server.once("listening", resolve))
+    cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())))
+    const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`
+
+    const bare = createNapcatBot(validateAccount({ mode: "ws", url }), fakeHost(), { adapterId: "napcat", http: fakeHttp() })
+    await expect(bare.connect()).rejects.toThrow(/账号里却没填.*accessToken/)
+    const wrong = createNapcatBot(validateAccount({ mode: "ws", url, token: "x" }), fakeHost(), { adapterId: "napcat", http: fakeHttp() })
+    await expect(wrong.connect()).rejects.toThrow(/取值不一致/)
+  })
+
+  it("路径不对时 SnowLuma 回 400，同样报成路径有误", async () => {
+    const server = new WebSocketServer({
+      host: "127.0.0.1",
+      port: 0,
+      verifyClient: (_info, done) => done(false, 400, "Bad path for WebSocket")
+    })
+    await new Promise<void>(resolve => server.once("listening", resolve))
+    cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())))
+    const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/onebot`
+
+    const driver = createNapcatBot(validateAccount({ mode: "ws", url }), fakeHost(), { adapterId: "napcat", http: fakeHttp() })
+    await expect(driver.connect()).rejects.toThrow(/路径有误/)
   })
 
   it("群消息被转换为内核事件并投递至管线", async () => {

@@ -3,16 +3,17 @@
  * 依赖方向：测试文件，只依赖 dialect.ts
  * 生命周期：纯函数，无夹具
  * 注意事项：应用名取自两家源码里 `get_version_info` 的返回值：NapCat 报 `NapCat.Onebot`，
- *          LLOneBot（现名 LuckyLilliaBot）报 `LLOneBot`。
+ *          LLOneBot（现名 LuckyLilliaBot）报 `LLOneBot`，SnowLuma 报 `SnowLuma`。
  */
 import { describe, expect, it } from "vitest"
 import { detectImpl, implLabel, implOf } from "./dialect.js"
 
 describe("implOf", () => {
-  it("认得两家自报的应用名，不分大小写", () => {
+  it("认得三家自报的应用名，不分大小写", () => {
     expect(implOf("NapCat.Onebot")).toBe("napcat")
     expect(implOf("LLOneBot")).toBe("llonebot")
     expect(implOf("luckylilliabot")).toBe("llonebot")
+    expect(implOf("SnowLuma")).toBe("snowluma")
   })
 
   it("别家与没报的都是 other", () => {
@@ -24,6 +25,8 @@ describe("implOf", () => {
 describe("implLabel", () => {
   it("带上自报的版本；认不出的用它自报的名字", () => {
     expect(implLabel({ impl: "llonebot", appName: "LLOneBot", version: "7.4.2" })).toBe("LLOneBot 7.4.2")
+    // SnowLuma 的版本带运行时后缀，原样照抄
+    expect(implLabel({ impl: "snowluma", appName: "SnowLuma", version: "2.1.1-node" })).toBe("SnowLuma 2.1.1-node")
     expect(implLabel({ impl: "other", appName: "Lagrange.OneBot", version: "0.0.3" })).toBe("Lagrange.OneBot 0.0.3")
     expect(implLabel({ impl: "other" })).toBe("OneBot v11 端")
   })

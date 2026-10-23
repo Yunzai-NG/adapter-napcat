@@ -6,7 +6,7 @@
  *          HTTP 服务器仅应答请求，不会主动推送。适配器必须在连接建立时明确警告一次，
  *          否则使用者将认为系自身配置错误，进而反复检查 NapCat 的设置。
  *
- *          **上报签名的密钥即为 token。** NapCat 与 LLOneBot 的上报配置里都没有独立的
+ *          **上报签名的密钥即为 token。** NapCat、LLOneBot、SnowLuma 的上报配置里都没有独立的
  *          secret 字段（该点与 OneBot v11 标准不同）：已配置 token 时即以其计算
  *          HMAC-SHA1，签名置于 `x-signature: sha1=<hex>`。因此 http-post 模式下
  *          对端两条配置（HTTP 服务器与 HTTP 上报）的 token 必须填写为同一取值。

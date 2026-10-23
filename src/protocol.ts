@@ -33,7 +33,7 @@ export interface ApiResponse<T = unknown> {
   data: T
   /** 英文错误标识 */
   message?: string
-  /** 中文错误原因（NapCat 与 LLOneBot 都给），报错时优先采用 */
+  /** 错误原因（三家都给），报错时优先采用 */
   wording?: string
   /** 回声标记，与请求中的一致 */
   echo?: string
@@ -67,7 +67,8 @@ export class NapcatApiError extends Error {
 /**
  * 已知 retcode 对应的排查方向
  *
- * WS 上两家同用 1200 / 1400；HTTP 上 LLOneBot 改用 200 / 400 / 404，NapCat 出错时也常回 200。
+ * WS 上三家同用 1200 / 1400；HTTP 上 LLOneBot 改用 200 / 400 / 404，NapCat 出错时也常回 200；
+ * SnowLuma 的鉴权失败是 1401，请求体过大是 1413。
  */
 const RETCODE_HINTS: Readonly<Record<number, string>> = {
   200: "对端处理该请求时抛出异常",
@@ -75,8 +76,10 @@ const RETCODE_HINTS: Readonly<Record<number, string>> = {
   404: "对端不支持该 API",
   1200: "对端处理该请求时抛出异常",
   1400: "参数不合法，或报文未能被解析",
+  1401: "Access Token 校验失败",
   1403: "Access Token 校验失败",
-  1404: "对端不支持该 API"
+  1404: "对端不支持该 API",
+  1413: "请求体超过对端的上限"
 }
 
 /**
@@ -96,7 +99,7 @@ export function isApiResponse(payload: unknown): payload is ApiResponse {
 /**
  * 自响应中取出数据，失败则抛错
  *
- * **成败仅依据 `status`，不依据 `retcode`。** NapCat 与 LLOneBot 的 retcode 编号都不遵循 OneBot v11
+ * **成败仅依据 `status`，不依据 `retcode`。** 三家的 retcode 编号都不遵循 OneBot v11
  * 标准，WS 与 HTTP 两条路径亦各不相同（HTTP 出错时甚至可能为 200），故其仅用于给出
  * 排查方向，不参与判定。
  * @param action API 名，用于错误信息

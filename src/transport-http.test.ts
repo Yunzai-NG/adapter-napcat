@@ -83,7 +83,7 @@ describe("HTTP 通道的错误归因", () => {
   it("其余网络错误仍归因到对端的网络配置", async () => {
     const transport = setup(failingHttp(new TimeoutError("连接超时")))
 
-    await expect(transport.open()).rejects.toThrow(/请检查 NapCat \/ LLOneBot 的网络配置/)
+    await expect(transport.open()).rejects.toThrow(/请检查 NapCat \/ LLOneBot \/ SnowLuma 的网络配置/)
     // 原始错误信息须保留，否则无从判断是超时还是拒绝连接
     await expect(transport.open()).rejects.toThrow(/连接超时/)
   })

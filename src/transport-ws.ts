@@ -39,10 +39,11 @@ export interface WsClientOptions {
 /**
  * 将 `ws` 的握手错误转换为可据以操作的中文说明
  * @param url 目标地址
+ * @param token 账号填的 Access Token
  * @param err 原始错误
  * @returns 错误信息
  */
-function explain(url: string, err: unknown): string {
+function explain(url: string, token: string, err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
 
   if (text.includes("ECONNREFUSED")) {
@@ -52,10 +53,15 @@ function explain(url: string, err: unknown): string {
     return `无法解析 ${url} 的主机名：请检查地址是否有误，容器部署时须使用容器网络中的主机名`
   }
   if (text.includes("403") || text.includes("401")) {
+    // SnowLuma 给每条网络配置自动生成 token，照「对端缺省不鉴权」留空的人都落在这里
+    if (token === "") {
+      return `${url} 拒绝了握手（${text}）：对端要求 Access Token，账号里却没填。SnowLuma 会自动生成 token，在它的 WebUI 或 config/onebot_<QQ号>.json 里找到该条 WebSocket 服务器的 accessToken 填进来`
+    }
     return `${url} 拒绝了握手（${text}）：Access Token 与对端该条网络配置中的取值不一致`
   }
-  if (text.includes("404")) {
-    return `${url} 返回 404：地址中的路径有误，正向 WS 通常无需路径，如 ws://127.0.0.1:3001`
+  // SnowLuma 对不认识的路径回 400 Bad path，其余两家回 404
+  if (text.includes("404") || text.includes("400")) {
+    return `${url} 拒绝了握手（${text}）：地址中的路径有误，正向 WS 通常无需路径，如 ws://127.0.0.1:3001`
   }
   if (text.includes("ETIMEDOUT") || text.includes("timeout")) {
     return `连接 ${url} 超时：目标不可达，请检查防火墙与容器端口映射`
@@ -129,7 +135,7 @@ export function createWsClientTransport(opts: WsClientOptions): Transport {
         }
         const onError = (err: Error): void => {
           done()
-          reject(new Error(explain(opts.url, err)))
+          reject(new Error(explain(opts.url, opts.token, err)))
         }
         // 握手被拒时 ws 先触发 error 再触发 close；亦存在仅 error 而无 close 的情形（代理），
         // 故两者均须监听，否则 open() 存在永不兑现的可能

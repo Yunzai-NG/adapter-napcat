@@ -2,6 +2,24 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## 0.7.0 — 2026-10-23
+
+### 新增
+
+- **支持 [SnowLuma](https://snowluma.github.io/zh/)。** 它的 OneBot v11 与 NapCat 同一套：缺省端口 3000 / 3001、
+  路径 `/`、上报签名 `x-signature: sha1=…`、心跳 30 秒，扩展接口（`send_poke`、`set_msg_emoji_like`、
+  合并转发、群文件、`get_file`）同名同参，私聊戳一戳也给 `sender_id`，故驱动不分岔。连上之后日志里写成
+  「已接入 SnowLuma 2.1.1-node：昵称」。面板上的名字改为「OneBot v11（NapCat / LLOneBot / SnowLuma）」，
+  适配器 id 仍是 `napcat`。
+- 正向 WS 握手被拒（401 / 403）而账号没填 token 时，报错指明去哪儿抄：SnowLuma 给每条网络配置自动生成
+  token，照「对端缺省不鉴权」留空的话一定被拒。Access Token 一栏的说明同样写上这一句。
+
+### 修复
+
+- 正向 WS 握手回 400 时也报成「路径有误」：SnowLuma 对不认识的路径回 `400 Bad path`，此前落到兜底的
+  「连接失败」。
+- 补上 SnowLuma 的 retcode 1401（鉴权失败）与 1413（请求体过大）的排查提示。
+
 ## 0.6.0 — 2026-10-22
 
 ### 变更

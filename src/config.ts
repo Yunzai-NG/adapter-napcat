@@ -16,12 +16,12 @@ import type { Infer, SchemaIssue } from "@yunzai-ng/core"
 /**
  * 网络模式
  *
- * 与 NapCat / LLOneBot 配置界面中的四种网络配置一一对应，命名沿用 OneBot 的既有表述，
+ * 与 NapCat / LLOneBot / SnowLuma 配置里的四种网络配置一一对应，命名沿用 OneBot 的既有表述，
  * 以使两侧界面中出现的为同一术语。
  */
 export type NapcatMode = "ws" | "ws-reverse" | "http" | "http-post"
 
-/** 两家 WebSocket 服务器与 HTTP 服务器的缺省端口一致：3001 与 3000 */
+/** 三家 WebSocket 服务器与 HTTP 服务器的缺省端口一致：3001 与 3000 */
 const DEFAULT_WS_URL = "ws://127.0.0.1:3001"
 const DEFAULT_HTTP_URL = "http://127.0.0.1:3000"
 
@@ -58,7 +58,7 @@ export const ACCOUNT_SCHEMA = s.object({
     ])
     .default("ws")
     .title("连接方式")
-    .desc("须与 NapCat / LLOneBot 网络配置中新建的对应项保持一致")
+    .desc("须与 NapCat / LLOneBot / SnowLuma 网络配置中新建的对应项保持一致")
     .order(1),
 
   // 两种地址分成两个字段：一个字段只能有一个缺省值，选了 HTTP 时预填的仍是 ws:// 地址
@@ -66,7 +66,10 @@ export const ACCOUNT_SCHEMA = s.object({
     .string()
     .default(DEFAULT_WS_URL)
     .title("WebSocket 地址")
-    .desc("对端 WebSocket 服务器的地址（NapCat：网络配置 → WebSocket 服务器；LLOneBot：正向 WebSocket），两家缺省端口均为 3001")
+    .desc(
+      "对端 WebSocket 服务器的地址（NapCat：网络配置 → WebSocket 服务器；LLOneBot：正向 WebSocket；SnowLuma：wsServers），" +
+        "三家缺省端口均为 3001"
+    )
     .placeholder(DEFAULT_WS_URL)
     .showWhen({ mode: ["ws"] })
     .order(2),
@@ -75,7 +78,9 @@ export const ACCOUNT_SCHEMA = s.object({
     .string()
     .default(DEFAULT_HTTP_URL)
     .title("HTTP 地址")
-    .desc("对端 HTTP 服务器的地址（NapCat：网络配置 → HTTP 服务器；LLOneBot：HTTP），两家缺省端口均为 3000")
+    .desc(
+      "对端 HTTP 服务器的地址（NapCat：网络配置 → HTTP 服务器；LLOneBot：HTTP；SnowLuma：httpServers），三家缺省端口均为 3000"
+    )
     .placeholder(DEFAULT_HTTP_URL)
     .showWhen({ mode: ["http", "http-post"] })
     .order(2),
@@ -99,6 +104,7 @@ export const ACCOUNT_SCHEMA = s.object({
     .desc(
       "须与对端该条网络配置中的 token 一致。正向 WS 与 HTTP 下留空即不鉴权；反向 WS 与 HTTP 上报下留空时只接受本机连入，" +
         "对端在容器或另一台机器上、或面板经反向代理对外时必须填写。" +
+        "SnowLuma 给每条网络配置自动生成 token，在它的 WebUI 或 config/onebot_<QQ号>.json 里照抄过来。" +
         "「HTTP + 事件上报」要在对端建两条配置（HTTP 服务器与 HTTP 上报），两条的 token 必须相同 —— 上报签名就用它计算"
     )
     .order(4),
@@ -139,7 +145,7 @@ export const ACCOUNT_SCHEMA = s.object({
     .title("静默超时")
     .desc(
       "在该时长内未收到任何报文（含心跳）即判定连接已死并重连。填 0 表示关闭。" +
-        "NapCat 默认每 30 秒、LLOneBot 默认每 60 秒发送一次心跳，取值小于该间隔将导致反复重连"
+        "NapCat 与 SnowLuma 默认每 30 秒、LLOneBot 默认每 60 秒发送一次心跳，取值小于该间隔将导致反复重连"
     )
     .showWhen({ mode: ["ws", "ws-reverse"] })
     .group("传输")
